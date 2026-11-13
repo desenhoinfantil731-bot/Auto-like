@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 9
-                  versionName = "1.8"
+                  versionCode = 10
+                  versionName = "1.9"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">Lê a área restrita de corações do TikTok e curte automaticamente.</string>
+              <string name="desc">Foca apenas em curtir corações não curtidos nos comentários do TikTok.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a lista com o dedo: o app só clicará estritamente na coluna dos corações da direita!"
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a lista com o dedo: o app agora só curte os corações vazios e NUNCA descurte os vermelhos!"
                       textSize = 18f
                   })
                   l.addView(Button(this).apply {
@@ -312,19 +312,26 @@ jobs:
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
 
-                  // ÁREA ESTRITAMENTE RESTRITA À COLUNA DOS CORAÇÕES (Lado direito - 65% a 100% da tela)
+                  // Coluna estrita dos corações (Lado direito)
                   val inColumn = r.left >= m.widthPixels * 0.65f &&
                           r.right <= m.widthPixels &&
                           r.top > m.heightPixels * 0.30f &&
                           r.bottom < m.heightPixels * 0.88f
 
+                  // Identifica que é um botão de curtida de comentário
                   val isHeart = desc.contains("curtir") || desc.contains("like") ||
                           desc.contains("digg") || id.contains("digg") || id.contains("like") ||
                           id.contains("iv_like") || desc.contains("coração")
 
-                  val alreadyLiked = desc.contains("descurtir") || desc.contains("curtido") ||
-                          desc.contains("unlike") || desc.contains("liked") || n.isSelected
+                  // BLOQUEIO RIGOROSO: Identifica se o coração JÁ ESTÁ CURTIDO (vermelho/selecionado)
+                  val alreadyLiked = desc.contains("descurtir") || 
+                          desc.contains("curtido") || 
+                          desc.contains("unlike") || 
+                          desc.contains("liked") || 
+                          desc.contains("remover") ||
+                          n.isSelected
 
+                  // Só adiciona se for coração, NÃO estiver curtido, estiver visível e dentro da coluna correta
                   if (isHeart && !alreadyLiked && n.isVisibleToUser && inColumn && r.width() > 0) {
                       out.add(n)
                   }
@@ -336,18 +343,7 @@ jobs:
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
 
-                  // Segurança rigorosa: só clica se estiver dentro da coluna dos corações da direita
                   if (r.left < m.widthPixels * 0.65f) return
-
-                  var c: AccessibilityNodeInfo? = n
-                  while (c != null && !c.isClickable) c = c.parent
-                  if (c != null) {
-                      val cr = Rect()
-                      c.getBoundsInScreen(cr)
-                      if (cr.left >= m.widthPixels * 0.65f) {
-                          if (c.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
-                      }
-                  }
 
                   val p = Path()
                   p.moveTo(r.exactCenterX(), r.exactCenterY())
