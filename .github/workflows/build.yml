@@ -331,4 +331,122 @@ jobs:
                   clickedPoints.clear()
                   btn?.text = "PARAR"
                   // Transforma a caixa em modo de leitura invisível/fino para não atrapalhar
-                  zone
+                  zoneBox?.text = "[ÁREA ATIVA]"
+                  val activeBorder = GradientDrawable().apply {
+                      setColor(Color.argb(20, 0, 255, 0))
+                      setStroke(2, Color.GREEN)
+                  }
+                  zoneBox?.background = activeBorder
+                  h.postDelayed({ tick() }, 300)
+              }
+
+              private fun stop() {
+                  running = false
+                  h.removeCallbacksAndMessages(null)
+                  btn?.text = "INICIAR"
+                  zoneBox?.text = "📍 ÁREA DOS CORAÇÕES\n(Arraste aqui)"
+                  val border = GradientDrawable().apply {
+                      setColor(Color.argb(50, 255, 0, 0))
+                      setStroke(4, Color.RED)
+                      cornerRadius = 16f
+                  }
+                  zoneBox?.background = border
+              }
+
+              private fun tick() {
+                  if (!running) return
+                  val root = rootInActiveWindow
+                  if (root == null || root.packageName?.toString() !in tiktok) {
+                      h.postDelayed({ tick() }, 1500)
+                      return
+                  }
+
+                  val targets = ArrayList<Pair<AccessibilityNodeInfo, String>>()
+                  collect(root, targets)
+
+                  val target = targets.firstOrNull()
+                  if (target != null) {
+                      clickedPoints.add(target.second)
+                      click(target.first)
+                      h.postDelayed({ tick() }, likeDelay())
+                  } else {
+                      // Aguarda você rolar a tela com o dedo para aparecerem novos corações na caixa
+                      h.postDelayed({ tick() }, 300)
+                  }
+              }
+
+              private fun collect(n: AccessibilityNodeInfo?, out: MutableList<Pair<AccessibilityNodeInfo, String>>) {
+                  if (n == null) return
+                  val desc = (n.contentDescription?.toString() ?: "").lowercase()
+                  val id = (n.viewIdResourceName ?: "").lowercase()
+                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                      n.stateDescription?.toString()?.lowercase() ?: ""
+                  } else ""
+
+                  val r = Rect()
+                  n.getBoundsInScreen(r)
+
+                  // PEGA AS COORDENADAS DA CAIXA VERMELHA QUE VOCÊ POSICIONOU NA TELA
+                  val box = zoneBox ?: return
+                  val boxLoc = IntArray(2)
+                  box.getLocationOnScreen(boxLoc)
+                  val boxRect = Rect(boxLoc[0], boxLoc[1], boxLoc[0] + box.width, boxLoc[1] + box.height)
+
+                  // VERIFICA SE O CORAÇÃO ESTÁ DENTRO DA SUA CAIXA PERSONALIZADA
+                  val isInsideBox = boxRect.contains(r.centerX(), r.centerY())
+
+                  val isAlreadyLiked = desc.contains("descurtir") || 
+                          desc.contains("curtido") || 
+                          desc.contains("unlike") || 
+                          desc.contains("liked") || 
+                          desc.contains("remover") ||
+                          stateDesc.contains("curtido") ||
+                          stateDesc.contains("liked") ||
+                          stateDesc.contains("selecionado") ||
+                          n.isSelected || 
+                          n.isChecked
+
+                  val isHeart = desc.contains("curtir") || desc.contains("like") ||
+                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
+                          id.contains("iv_like") || desc.contains("coração")
+
+                  if (isHeart && !isAlreadyLiked && isInsideBox && r.width() > 0 && r.height() > 0) {
+                      val pointKey = "${r.centerX() / 30},${r.centerY() / 30}"
+                      if (pointKey !in clickedPoints) {
+                          out.add(Pair(n, pointKey))
+                      }
+                  }
+
+                  for (i in 0 until n.childCount) {
+                      collect(n.getChild(i), out)
+                  }
+              }
+
+              private fun click(n: AccessibilityNodeInfo) {
+                  val r = Rect()
+                  n.getBoundsInScreen(r)
+
+                  // Confirmação extra: só clica se estiver dentro da caixa vermelha na tela
+                  val box = zoneBox
+                  if (box != null) {
+                      val boxLoc = IntArray(2)
+                      box.getLocationOnScreen(boxLoc)
+                      val boxRect = Rect(boxLoc[0], boxLoc[1], boxLoc[0] + box.width, boxLoc[1] + box.height)
+                      if (!boxRect.contains(r.centerX(), r.centerY())) return
+                  }
+
+                  val p = Path()
+                  p.moveTo(r.exactCenterX(), r.exactCenterY())
+                  val g = GestureDescription.Builder()
+                      .addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
+                  dispatchGesture(g, null, null)
+              }
+          }
+          EOF
+      - name: Compilar
+        working-directory: proj
+        run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoLike-apk
+          path: proj/app/build/outputs/apk/debug/app-debug.apk
