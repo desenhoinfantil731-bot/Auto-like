@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 14
-                  versionName = "2.3"
+                  versionCode = 15
+                  versionName = "2.4"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">Curte apenas corações vazios com base na memória do comentário.</string>
+              <string name="desc">Curte apenas corações vazios com bloqueio definitivo de posição.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a tela com o dedo: o app agora memoriza cada comentário e NUNCA descurte os vermelhos!"
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a tela com o dedo: o app agora bloqueia permanentemente cada coração curtido para nunca mais descurtir!"
                       textSize = 18f
                   })
                   l.addView(Button(this).apply {
@@ -164,7 +164,7 @@ jobs:
           class AutoLikeService : AccessibilityService() {
               private val h = Handler(Looper.getMainLooper())
               private var running = false
-              private val done = HashSet<String>()
+              private val clickedPoints = HashSet<String>()
               private var btn: Button? = null
               private var speedBtn: Button? = null
               private var speed = 1
@@ -266,7 +266,7 @@ jobs:
 
               private fun start() {
                   running = true
-                  done.clear()
+                  clickedPoints.clear()
                   btn?.text = "PARAR"
                   h.postDelayed({ tick() }, 300)
               }
@@ -285,19 +285,21 @@ jobs:
                       return
                   }
 
-                  val hearts = ArrayList<AccessibilityNodeInfo>()
-                  collect(root, hearts)
+                  val targets = ArrayList<Pair<AccessibilityNodeInfo, String>>()
+                  collect(root, targets)
 
-                  val target = hearts.firstOrNull()
+                  val target = targets.firstOrNull()
                   if (target != null) {
-                      click(target)
+                      clickedPoints.add(target.second) // Registra a posição como bloqueada imediatamente
+                      click(target.first)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
+                      // Aguarda novos comentários ao rolar a tela
                       h.postDelayed({ tick() }, 300)
                   }
               }
 
-              private fun collect(n: AccessibilityNodeInfo?, out: MutableList<AccessibilityNodeInfo>) {
+              private fun collect(n: AccessibilityNodeInfo?, out: MutableList<Pair<AccessibilityNodeInfo, String>>) {
                   if (n == null) return
                   val desc = (n.contentDescription?.toString() ?: "").lowercase()
                   val id = (n.viewIdResourceName ?: "").lowercase()
@@ -329,11 +331,10 @@ jobs:
                           desc.contains("digg") || id.contains("digg") || id.contains("like") ||
                           id.contains("iv_like") || desc.contains("coração")
 
-                  if (isHeart && inColumn && r.width() > 0) {
-                      val signature = getCommentSignature(n)
-                      if (!isAlreadyLiked && signature !in done) {
-                          done.add(signature)
-                          out.add(n)
+                  if (isHeart && !isAlreadyLiked && inColumn && r.width() > 0) {
+                      val pointKey = "${r.centerX() / 35},${r.centerY() / 35}"
+                      if (pointKey !in clickedPoints) {
+                          out.add(Pair(n, pointKey))
                       }
                   }
 
@@ -342,43 +343,22 @@ jobs:
                   }
               }
 
-              private fun getCommentSignature(node: AccessibilityNodeInfo): String {
-                  var curr: AccessibilityNodeInfo? = node
-                  var container: AccessibilityNodeInfo? = node
-                  for (i in 0..3) {
-                      if (curr?.parent == null) break
-                      curr = curr.parent
-                      if (curr != null && curr.childCount >= 2) {
-                          container = curr
-                      }
-                  }
-                  val sb = StringBuilder()
-                  collectText(container, sb)
-                  val r = Rect()
-                  node.getBoundsInScreen(r)
-                  return if (sb.isNotEmpty()) sb.toString().trim() else "$r"
-              }
-
-              private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder) {
-                  if (n == null) return
-                  val t = n.text?.toString()
-                  val d = n.contentDescription?.toString()
-                  if (!t.isNullOrEmpty()) sb.append(t).append(" ")
-                  if (!d.isNullOrEmpty() && !d.lowercase().contains("curtir") && !d.lowercase().contains("like")) {
-                      sb.append(d).append(" ")
-                  }
-                  for (i in 0 until n.childCount) {
-                      collectText(n.getChild(i), sb)
-                  }
-              }
-
               private fun click(n: AccessibilityNodeInfo) {
+                  // Tenta primeiro o clique nativo de acessibilidade
+                  var c: AccessibilityNodeInfo? = n
+                  while (c != null && !c.isClickable) {
+                      c = c.parent
+                  }
+                  if (c != null && c.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                      return
+                  }
+                  if (n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                      return
+                  }
+
+                  // Fallback para gesto por coordenadas caso o nó não tenha ação direta
                   val r = Rect()
                   n.getBoundsInScreen(r)
-                  val m = resources.displayMetrics
-
-                  if (r.left < m.widthPixels * 0.62f) return
-
                   val p = Path()
                   p.moveTo(r.exactCenterX(), r.exactCenterY())
                   val g = GestureDescription.Builder()
