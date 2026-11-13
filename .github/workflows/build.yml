@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 12
-                  versionName = "2.1"
+                  versionCode = 13
+                  versionName = "2.2"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">Curte apenas corações vazios e aguarda novos comentários.</string>
+              <string name="desc">Curte apenas corações vazios com base na memória do comentário.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a tela com o dedo: o app curte apenas os corações vazios e NUNCA toca nos vermelhos."
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a tela com o dedo: o app agora memoriza cada comentário e NUNCA descurte os vermelhos!"
                       textSize = 18f
                   })
                   l.addView(Button(this).apply {
@@ -288,27 +288,24 @@ jobs:
                   val hearts = ArrayList<AccessibilityNodeInfo>()
                   collect(root, hearts)
 
-                  val target = hearts.firstOrNull { key(it) !in done }
+                  val target = hearts.firstOrNull()
                   if (target != null) {
-                      done.add(key(target))
                       click(target)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
-                      // Nenhum coração novo na tela atual: aguarda o usuário rolar a tela
+                      // Aguarda o usuário rolar a tela para novos comentários
                       h.postDelayed({ tick() }, 300)
                   }
-              }
-
-              private fun key(n: AccessibilityNodeInfo): String {
-                  val r = Rect()
-                  n.getBoundsInScreen(r)
-                  return "${r.left},${r.top}"
               }
 
               private fun collect(n: AccessibilityNodeInfo?, out: MutableList<AccessibilityNodeInfo>) {
                   if (n == null) return
                   val desc = (n.contentDescription?.toString() ?: "").lowercase()
                   val id = (n.viewIdResourceName ?: "").lowercase()
+                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                      n.stateDescription?.toString()?.lowercase() ?: ""
+                  } else ""
+
                   val r = Rect()
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
@@ -319,30 +316,60 @@ jobs:
                           r.top > m.heightPixels * 0.28f &&
                           r.bottom < m.heightPixels * 0.90f
 
-                  // VERIFICAÇÃO DE JÁ CURTIDO (BLOQUEIO TOTAL DE CORAÇÕES VERMELHOS)
                   val isAlreadyLiked = desc.contains("descurtir") || 
                           desc.contains("curtido") || 
                           desc.contains("unlike") || 
                           desc.contains("liked") || 
                           desc.contains("remover") ||
+                          stateDesc.contains("curtido") ||
+                          stateDesc.contains("liked") ||
+                          stateDesc.contains("selecionado") ||
                           n.isSelected || 
                           n.isChecked
 
-                  // Se já estiver curtido, ignora imediatamente para não descurtir
-                  if (isAlreadyLiked) {
-                      for (i in 0 until n.childCount) collect(n.getChild(i), out)
-                      return
-                  }
-
-                  // Identifica que é um coração válido
                   val isHeart = desc.contains("curtir") || desc.contains("like") ||
                           desc.contains("digg") || id.contains("digg") || id.contains("like") ||
                           id.contains("iv_like") || desc.contains("coração")
 
-                  if (isHeart && n.isVisibleToUser && inColumn && r.width() > 0) {
-                      out.add(n)
+                  if (isHeart && inColumn && r.width() > 0) {
+                      val signature = getCommentSignature(n)
+                      if (!isAlreadyLiked && signature !in done) {
+                          done.add(signature)
+                          out.add(n)
+                      }
                   }
-                  for (i in 0 until n.childCount) collect(n.getChild(i), out)
+
+                  for (i in 0 until n.childCount) {
+                      collect(n.getChild(i), out)
+                  }
+              }
+
+              private fun getCommentSignature(node: AccessibilityNodeInfo): String {
+                  var curr: AccessibilityNodeInfo? = node
+                  var container: AccessibilityNodeInfo? = node
+                  for (i in 0..3) {
+                      if (curr?.parent == null) break
+                      curr = curr.parent
+                      if (curr != null && curr.childCount >= 2) {
+                          container = curr
+                      }
+                  }
+                  val sb = StringBuilder()
+                  collectText(container, sb)
+                  return if (sb.isNotEmpty()) sb.toString().trim() else "${node.boundsInScreen}"
+              }
+
+              private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder) {
+                  if (n == null) return
+                  val t = n.text?.toString()
+                  val d = n.contentDescription?.toString()
+                  if (!t.isNullOrEmpty()) sb.append(t).append(" ")
+                  if (!d.isNullOrEmpty() && !d.lowercase().contains("curtir") && !d.lowercase().contains("like")) {
+                      sb.append(d).append(" ")
+                  }
+                  for (i in 0 until n.childCount) {
+                      collectText(n.getChild(i), sb)
+                  }
               }
 
               private fun click(n: AccessibilityNodeInfo) {
