@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 10
-                  versionName = "1.9"
+                  versionCode = 11
+                  versionName = "2.0"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">Foca apenas em curtir corações não curtidos nos comentários do TikTok.</string>
+              <string name="desc">Curte apenas corações vazios e aguarda novos comentários.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a lista com o dedo: o app agora só curte os corações vazios e NUNCA descurte os vermelhos!"
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a tela com o dedo: o app curti apenas os corações vazios e aguarda novos aparecerem."
                       textSize = 18f
                   })
                   l.addView(Button(this).apply {
@@ -180,9 +180,9 @@ jobs:
               )
 
               private fun likeDelay(): Long = when (speed) {
-                  0 -> Random.nextLong(1000, 1800)
-                  1 -> Random.nextLong(350, 700)
-                  else -> Random.nextLong(150, 250)
+                  0 -> Random.nextLong(1000, 1600)
+                  1 -> Random.nextLong(300, 600)
+                  else -> Random.nextLong(120, 220)
               }
 
               override fun onServiceConnected() {
@@ -288,13 +288,15 @@ jobs:
                   val hearts = ArrayList<AccessibilityNodeInfo>()
                   collect(root, hearts)
 
+                  // Pega apenas os que ainda não foram clicados nesta sessão
                   val target = hearts.firstOrNull { key(it) !in done }
                   if (target != null) {
                       done.add(key(target))
                       click(target)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
-                      h.postDelayed({ tick() }, 250)
+                      // Se não há novos corações para curtir, fica apenas aguardando o usuário rolar a tela
+                      h.postDelayed({ tick() }, 300)
                   }
               }
 
@@ -312,27 +314,28 @@ jobs:
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
 
-                  // Coluna estrita dos corações (Lado direito)
-                  val inColumn = r.left >= m.widthPixels * 0.65f &&
+                  // Coluna lateral direita dos comentários
+                  val inColumn = r.left >= m.widthPixels * 0.62f &&
                           r.right <= m.widthPixels &&
-                          r.top > m.heightPixels * 0.30f &&
-                          r.bottom < m.heightPixels * 0.88f
+                          r.top > m.heightPixels * 0.28f &&
+                          r.bottom < m.heightPixels * 0.90f
 
-                  // Identifica que é um botão de curtida de comentário
                   val isHeart = desc.contains("curtir") || desc.contains("like") ||
                           desc.contains("digg") || id.contains("digg") || id.contains("like") ||
                           id.contains("iv_like") || desc.contains("coração")
 
-                  // BLOQUEIO RIGOROSO: Identifica se o coração JÁ ESTÁ CURTIDO (vermelho/selecionado)
-                  val alreadyLiked = desc.contains("descurtir") || 
+                  // RESTRIÇÃO MÁXIMA PARA NÃO DESCURTIR: Se tiver qualquer termo indicando curtida ativa, é ignorado
+                  val isAlreadyLiked = desc.contains("descurtir") || 
                           desc.contains("curtido") || 
                           desc.contains("unlike") || 
                           desc.contains("liked") || 
                           desc.contains("remover") ||
-                          n.isSelected
+                          desc.contains("red") ||
+                          n.isSelected || 
+                          n.isChecked
 
-                  // Só adiciona se for coração, NÃO estiver curtido, estiver visível e dentro da coluna correta
-                  if (isHeart && !alreadyLiked && n.isVisibleToUser && inColumn && r.width() > 0) {
+                  // Só aceita se for um coração, NÃO estiver curtido, estiver visível e na coluna certa
+                  if (isHeart && !isAlreadyLiked && n.isVisibleToUser && inColumn && r.width() > 0) {
                       out.add(n)
                   }
                   for (i in 0 until n.childCount) collect(n.getChild(i), out)
@@ -343,7 +346,7 @@ jobs:
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
 
-                  if (r.left < m.widthPixels * 0.65f) return
+                  if (r.left < m.widthPixels * 0.62f) return
 
                   val p = Path()
                   p.moveTo(r.exactCenterX(), r.exactCenterY())
