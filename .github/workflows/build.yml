@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 13
-                  versionName = "2.2"
+                  versionCode = 14
+                  versionName = "2.3"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -293,7 +293,6 @@ jobs:
                       click(target)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
-                      // Aguarda o usuário rolar a tela para novos comentários
                       h.postDelayed({ tick() }, 300)
                   }
               }
@@ -310,7 +309,6 @@ jobs:
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
 
-                  // Coluna lateral direita dos comentários
                   val inColumn = r.left >= m.widthPixels * 0.62f &&
                           r.right <= m.widthPixels &&
                           r.top > m.heightPixels * 0.28f &&
@@ -356,7 +354,9 @@ jobs:
                   }
                   val sb = StringBuilder()
                   collectText(container, sb)
-                  return if (sb.isNotEmpty()) sb.toString().trim() else "${node.boundsInScreen}"
+                  val r = Rect()
+                  node.getBoundsInScreen(r)
+                  return if (sb.isNotEmpty()) sb.toString().trim() else "$r"
               }
 
               private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder) {
