@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 7
-                  versionName = "1.6"
+                  versionCode = 8
+                  versionName = "1.7"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">Lê a tela do TikTok, curte os corações dos comentários e rola a lista automaticamente.</string>
+              <string name="desc">Lê a tela do TikTok e curte os corações dos comentários automaticamente.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike em Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Arraste A e B para dentro da lista de comentários: A embaixo e B em cima.\n4) Toque em VEL para trocar a velocidade.\n5) Toque em INICIAR."
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a lista de comentários com o dedo: o app curtirá automaticamente os corações visíveis na tela!"
                       textSize = 18f
                   })
                   l.addView(Button(this).apply {
@@ -164,22 +164,14 @@ jobs:
           class AutoLikeService : AccessibilityService() {
               private val h = Handler(Looper.getMainLooper())
               private var running = false
-              private var misses = 0
               private val done = HashSet<String>()
               private var btn: Button? = null
               private var speedBtn: Button? = null
-              private var markA: Button? = null
-              private var markB: Button? = null
               private var speed = 1
-              private var ax = 0f
-              private var ay = 0f
-              private var bx = 0f
-              private var by = 0f
               private val speedNames = arrayOf("LENTO", "RÁPIDO", "TURBO")
-              private val swipeDur = longArrayOf(500L, 300L, 220L)
               private val lps = HashMap<View, WindowManager.LayoutParams>()
               private lateinit var wm: WindowManager
-              
+
               private val tiktok = setOf(
                   "com.ss.android.ugc.aweme",
                   "com.ss.android.ugc.aweme.lite",
@@ -188,31 +180,23 @@ jobs:
               )
 
               private fun likeDelay(): Long = when (speed) {
-                  0 -> Random.nextLong(1200, 2500)
-                  1 -> Random.nextLong(500, 900)
-                  else -> Random.nextLong(200, 400)
-              }
-
-              private fun scrollDelay(): Long = when (speed) {
-                  0 -> Random.nextLong(2000, 3500)
-                  1 -> Random.nextLong(900, 1400)
-                  else -> Random.nextLong(500, 850)
+                  0 -> Random.nextLong(1000, 2000)
+                  1 -> Random.nextLong(400, 800)
+                  else -> Random.nextLong(150, 300)
               }
 
               override fun onServiceConnected() {
                   wm = getSystemService(WINDOW_SERVICE) as WindowManager
                   val m = resources.displayMetrics
                   val w = m.widthPixels
-                  val hh = m.heightPixels
-                  btn = addFloating("INICIAR", Color.parseColor("#2E7D32"), (w * 0.72f).toInt(), 300) {
+                  
+                  btn = addFloating("INICIAR", Color.parseColor("#2E7D32"), (w * 0.70f).toInt(), 300) {
                       if (running) stop() else start()
                   }
-                  speedBtn = addFloating("VEL: " + speedNames[speed], Color.parseColor("#6A1B9A"), (w * 0.72f).toInt(), 480) {
+                  speedBtn = addFloating("VEL: " + speedNames[speed], Color.parseColor("#6A1B9A"), (w * 0.70f).toInt(), 450) {
                       speed = (speed + 1) % 3
                       speedBtn?.text = "VEL: " + speedNames[speed]
                   }
-                  markA = addFloating("A", Color.parseColor("#1565C0"), (w * 0.47f).toInt(), (hh * 0.73f).toInt(), null)
-                  markB = addFloating("B", Color.parseColor("#C62828"), (w * 0.47f).toInt(), (hh * 0.56f).toInt(), null)
               }
 
               @SuppressLint("ClickableViewAccessibility")
@@ -281,71 +265,38 @@ jobs:
               }
 
               private fun start() {
-                  val a = markA ?: return
-                  val b = markB ?: return
-                  val ca = center(a)
-                  val cb = center(b)
-                  ax = ca.first
-                  ay = ca.second
-                  bx = cb.first
-                  by = cb.second
                   running = true
-                  misses = 0
                   done.clear()
                   btn?.text = "PARAR"
-                  a.visibility = View.GONE
-                  b.visibility = View.GONE
-                  h.postDelayed({ tick() }, 400)
+                  h.postDelayed({ tick() }, 300)
               }
 
               private fun stop() {
                   running = false
                   h.removeCallbacksAndMessages(null)
                   btn?.text = "INICIAR"
-                  markA?.visibility = View.VISIBLE
-                  markB?.visibility = View.VISIBLE
               }
 
               private fun tick() {
                   if (!running) return
                   val root = rootInActiveWindow
                   if (root == null || root.packageName?.toString() !in tiktok) {
-                      h.postDelayed({ tick() }, 2000)
+                      h.postDelayed({ tick() }, 1500)
                       return
                   }
+
                   val hearts = ArrayList<AccessibilityNodeInfo>()
                   collect(root, hearts)
-                  if (hearts.isEmpty() && !hasReply(root)) {
-                      misses++
-                      if (misses >= 4) {
-                          swipe()
-                          misses = 0
-                      }
-                      h.postDelayed({ tick() }, 1000)
-                      return
-                  }
-                  misses = 0
+
                   val target = hearts.firstOrNull { key(it) !in done }
                   if (target != null) {
                       done.add(key(target))
                       click(target)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
-                      swipe()
-                      done.clear()
-                      h.postDelayed({ tick() }, scrollDelay())
+                      // Se não houver novos corações na tela atual, verifica novamente em breve (enquanto o usuário rola)
+                      h.postDelayed({ tick() }, 300)
                   }
-              }
-
-              private fun hasReply(n: AccessibilityNodeInfo?): Boolean {
-                  if (n == null) return false
-                  val t = (n.text?.toString() ?: "").trim().lowercase()
-                  val d = (n.contentDescription?.toString() ?: "").trim().lowercase()
-                  if (t == "responder" || t == "reply" || d == "responder" || d == "reply") return true
-                  for (i in 0 until n.childCount) {
-                      if (hasReply(n.getChild(i))) return true
-                  }
-                  return false
               }
 
               private fun key(n: AccessibilityNodeInfo): String {
@@ -361,10 +312,11 @@ jobs:
                   val r = Rect()
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
-                  
-                  val inList = r.top > m.heightPixels * 0.30f &&
-                          r.bottom < m.heightPixels * 0.90f &&
-                          r.left > m.widthPixels * 0.55f
+
+                  // Área dos comentários (foco na lateral direita onde ficam os corações)
+                  val inList = r.top > m.heightPixels * 0.25f &&
+                          r.bottom < m.heightPixels * 0.92f &&
+                          r.left > m.widthPixels * 0.50f
 
                   val isHeart = desc.contains("curtir") || desc.contains("like") ||
                           desc.contains("digg") || id.contains("digg") || id.contains("like") ||
@@ -387,30 +339,8 @@ jobs:
                   n.getBoundsInScreen(r)
                   val p = Path()
                   p.moveTo(r.exactCenterX(), r.exactCenterY())
-                  gesture(p, 60)
-              }
-
-              private fun center(v: View): Pair<Float, Float> {
-                  val loc = IntArray(2)
-                  v.getLocationOnScreen(loc)
-                  return Pair(loc[0] + v.width / 2f, loc[1] + v.height / 2f)
-              }
-
-              private fun swipe() {
-                  val fromA = ay >= by
-                  val sx = if (fromA) ax else bx
-                  val sy = if (fromA) ay else by
-                  val ex = if (fromA) bx else ax
-                  val ey = if (fromA) by else ay
-                  val p = Path()
-                  p.moveTo(sx + Random.nextInt(-8, 9), sy)
-                  p.lineTo(ex + Random.nextInt(-8, 9), ey)
-                  gesture(p, swipeDur[speed])
-              }
-
-              private fun gesture(path: Path, dur: Long) {
                   val g = GestureDescription.Builder()
-                      .addStroke(GestureDescription.StrokeDescription(path, 0, dur)).build()
+                      .addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build()
                   dispatchGesture(g, null, null)
               }
           }
