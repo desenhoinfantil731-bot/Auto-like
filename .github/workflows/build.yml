@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 8
-                  versionName = "1.7"
+                  versionCode = 9
+                  versionName = "1.8"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">Lê a tela do TikTok e curte os corações dos comentários automaticamente.</string>
+              <string name="desc">Lê a área restrita de corações do TikTok e curte automaticamente.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a lista de comentários com o dedo: o app curtirá automaticamente os corações visíveis na tela!"
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a lista com o dedo: o app só clicará estritamente na coluna dos corações da direita!"
                       textSize = 18f
                   })
                   l.addView(Button(this).apply {
@@ -180,9 +180,9 @@ jobs:
               )
 
               private fun likeDelay(): Long = when (speed) {
-                  0 -> Random.nextLong(1000, 2000)
-                  1 -> Random.nextLong(400, 800)
-                  else -> Random.nextLong(150, 300)
+                  0 -> Random.nextLong(1000, 1800)
+                  1 -> Random.nextLong(350, 700)
+                  else -> Random.nextLong(150, 250)
               }
 
               override fun onServiceConnected() {
@@ -294,8 +294,7 @@ jobs:
                       click(target)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
-                      // Se não houver novos corações na tela atual, verifica novamente em breve (enquanto o usuário rola)
-                      h.postDelayed({ tick() }, 300)
+                      h.postDelayed({ tick() }, 250)
                   }
               }
 
@@ -313,10 +312,11 @@ jobs:
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
 
-                  // Área dos comentários (foco na lateral direita onde ficam os corações)
-                  val inList = r.top > m.heightPixels * 0.25f &&
-                          r.bottom < m.heightPixels * 0.92f &&
-                          r.left > m.widthPixels * 0.50f
+                  // ÁREA ESTRITAMENTE RESTRITA À COLUNA DOS CORAÇÕES (Lado direito - 65% a 100% da tela)
+                  val inColumn = r.left >= m.widthPixels * 0.65f &&
+                          r.right <= m.widthPixels &&
+                          r.top > m.heightPixels * 0.30f &&
+                          r.bottom < m.heightPixels * 0.88f
 
                   val isHeart = desc.contains("curtir") || desc.contains("like") ||
                           desc.contains("digg") || id.contains("digg") || id.contains("like") ||
@@ -325,18 +325,30 @@ jobs:
                   val alreadyLiked = desc.contains("descurtir") || desc.contains("curtido") ||
                           desc.contains("unlike") || desc.contains("liked") || n.isSelected
 
-                  if (isHeart && !alreadyLiked && n.isVisibleToUser && inList && r.width() > 0) {
+                  if (isHeart && !alreadyLiked && n.isVisibleToUser && inColumn && r.width() > 0) {
                       out.add(n)
                   }
                   for (i in 0 until n.childCount) collect(n.getChild(i), out)
               }
 
               private fun click(n: AccessibilityNodeInfo) {
-                  var c: AccessibilityNodeInfo? = n
-                  while (c != null && !c.isClickable) c = c.parent
-                  if (c != null && c.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
                   val r = Rect()
                   n.getBoundsInScreen(r)
+                  val m = resources.displayMetrics
+
+                  // Segurança rigorosa: só clica se estiver dentro da coluna dos corações da direita
+                  if (r.left < m.widthPixels * 0.65f) return
+
+                  var c: AccessibilityNodeInfo? = n
+                  while (c != null && !c.isClickable) c = c.parent
+                  if (c != null) {
+                      val cr = Rect()
+                      c.getBoundsInScreen(cr)
+                      if (cr.left >= m.widthPixels * 0.65f) {
+                          if (c.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+                      }
+                  }
+
                   val p = Path()
                   p.moveTo(r.exactCenterX(), r.exactCenterY())
                   val g = GestureDescription.Builder()
