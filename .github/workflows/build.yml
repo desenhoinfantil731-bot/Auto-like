@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 11
-                  versionName = "2.0"
+                  versionCode = 12
+                  versionName = "2.1"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a tela com o dedo: o app curti apenas os corações vazios e aguarda novos aparecerem."
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Toque em INICIAR.\n4) Role a tela com o dedo: o app curte apenas os corações vazios e NUNCA toca nos vermelhos."
                       textSize = 18f
                   })
                   l.addView(Button(this).apply {
@@ -288,14 +288,13 @@ jobs:
                   val hearts = ArrayList<AccessibilityNodeInfo>()
                   collect(root, hearts)
 
-                  // Pega apenas os que ainda não foram clicados nesta sessão
                   val target = hearts.firstOrNull { key(it) !in done }
                   if (target != null) {
                       done.add(key(target))
                       click(target)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
-                      // Se não há novos corações para curtir, fica apenas aguardando o usuário rolar a tela
+                      // Nenhum coração novo na tela atual: aguarda o usuário rolar a tela
                       h.postDelayed({ tick() }, 300)
                   }
               }
@@ -320,22 +319,27 @@ jobs:
                           r.top > m.heightPixels * 0.28f &&
                           r.bottom < m.heightPixels * 0.90f
 
-                  val isHeart = desc.contains("curtir") || desc.contains("like") ||
-                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
-                          id.contains("iv_like") || desc.contains("coração")
-
-                  // RESTRIÇÃO MÁXIMA PARA NÃO DESCURTIR: Se tiver qualquer termo indicando curtida ativa, é ignorado
+                  // VERIFICAÇÃO DE JÁ CURTIDO (BLOQUEIO TOTAL DE CORAÇÕES VERMELHOS)
                   val isAlreadyLiked = desc.contains("descurtir") || 
                           desc.contains("curtido") || 
                           desc.contains("unlike") || 
                           desc.contains("liked") || 
                           desc.contains("remover") ||
-                          desc.contains("red") ||
                           n.isSelected || 
                           n.isChecked
 
-                  // Só aceita se for um coração, NÃO estiver curtido, estiver visível e na coluna certa
-                  if (isHeart && !isAlreadyLiked && n.isVisibleToUser && inColumn && r.width() > 0) {
+                  // Se já estiver curtido, ignora imediatamente para não descurtir
+                  if (isAlreadyLiked) {
+                      for (i in 0 until n.childCount) collect(n.getChild(i), out)
+                      return
+                  }
+
+                  // Identifica que é um coração válido
+                  val isHeart = desc.contains("curtir") || desc.contains("like") ||
+                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
+                          id.contains("iv_like") || desc.contains("coração")
+
+                  if (isHeart && n.isVisibleToUser && inColumn && r.width() > 0) {
                       out.add(n)
                   }
                   for (i in 0 until n.childCount) collect(n.getChild(i), out)
