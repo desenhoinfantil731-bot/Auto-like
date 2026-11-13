@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 18
-                  versionName = "2.7"
+                  versionCode = 19
+                  versionName = "2.8"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">Curte elementos clicáveis dentro da caixa vermelha ajustada.</string>
+              <string name="desc">Curte todos os itens clicáveis dentro da caixa vermelha.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Posicione a **CAIXA VERMELHA menor** exatamente em cima dos corações vazios.\n4) Toque em INICIAR e role a tela com o dedo!"
+                      text = "1) Ative o AutoLike nas Configurações de Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Posicione a **CAIXA VERMELHA** exatamente em cima dos corações.\n4) Toque em INICIAR e role a tela com o dedo!"
                       textSize = 17f
                   })
                   l.addView(Button(this).apply {
@@ -183,9 +183,9 @@ jobs:
               )
 
               private fun likeDelay(): Long = when (speed) {
-                  0 -> Random.nextLong(900, 1500)
-                  1 -> Random.nextLong(300, 600)
-                  else -> Random.nextLong(120, 220)
+                  0 -> Random.nextLong(800, 1400)
+                  1 -> Random.nextLong(250, 500)
+                  else -> Random.nextLong(100, 180)
               }
 
               override fun onServiceConnected() {
@@ -194,18 +194,16 @@ jobs:
                   val w = m.widthPixels
                   val hh = m.heightPixels
 
-                  // Botão INICIAR / PARAR
                   btn = addFloatingButton("INICIAR", Color.parseColor("#2E7D32"), (w * 0.05f).toInt(), 150) {
                       if (running) stop() else start()
                   }
-                  // Botão de Velocidade
                   speedBtn = addFloatingButton("VEL: " + speedNames[speed], Color.parseColor("#6A1B9A"), (w * 0.35f).toInt(), 150) {
                       speed = (speed + 1) % 3
                       speedBtn?.text = "VEL: " + speedNames[speed]
                   }
 
-                  // CAIXA MENOR E MAIS FOCADA (Posicionada exatamente na coluna dos corações)
-                  zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.32f).toInt(), (w * 0.18f).toInt(), (hh * 0.52f).toInt())
+                  // Caixa delimitadora inicial
+                  zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.32f).toInt(), (w * 0.20f).toInt(), (hh * 0.55f).toInt())
               }
 
               @SuppressLint("ClickableViewAccessibility")
@@ -370,17 +368,12 @@ jobs:
                       click(target.first)
                       h.postDelayed({ tick() }, likeDelay())
                   } else {
-                      h.postDelayed({ tick() }, 250)
+                      h.postDelayed({ tick() }, 200)
                   }
               }
 
               private fun collect(n: AccessibilityNodeInfo?, out: MutableList<Pair<AccessibilityNodeInfo, String>>) {
                   if (n == null) return
-                  val desc = (n.contentDescription?.toString() ?: "").lowercase()
-                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
-                      n.stateDescription?.toString()?.lowercase() ?: ""
-                  } else ""
-
                   val r = Rect()
                   n.getBoundsInScreen(r)
 
@@ -389,25 +382,14 @@ jobs:
                   box.getLocationOnScreen(boxLoc)
                   val boxRect = Rect(boxLoc[0], boxLoc[1], boxLoc[0] + box.width, boxLoc[1] + box.height)
 
+                  // Verifica se o elemento está dentro da caixa vermelha que você ajustou
                   val isInsideBox = boxRect.contains(r.centerX(), r.centerY())
 
-                  // Evita corações já curtidos
-                  val isAlreadyLiked = desc.contains("descurtir") || 
-                          desc.contains("curtido") || 
-                          desc.contains("unlike") || 
-                          desc.contains("liked") || 
-                          desc.contains("remover") ||
-                          stateDesc.contains("curtido") ||
-                          stateDesc.contains("liked") ||
-                          stateDesc.contains("selecionado") ||
-                          n.isSelected || 
-                          n.isChecked
-
-                  // Detecta se é clicável e está dentro da caixa menor dos corações
+                  // Se o nó for clicável, pequeno (tamanho de ícone) e estiver dentro da caixa, é um alvo válido
                   val isClickable = n.isClickable || (n.parent != null && n.parent.isClickable)
 
-                  if (isClickable && !isAlreadyLiked && isInsideBox && r.width() > 10 && r.height() > 10 && r.width() < 120) {
-                      val pointKey = "${r.centerX() / 25},${r.centerY() / 25}"
+                  if (isClickable && isInsideBox && r.width() > 5 && r.height() > 5 && r.width() < 140 && r.height() < 140) {
+                      val pointKey = "${r.centerX() / 20},${r.centerY() / 20}"
                       if (pointKey !in clickedPoints) {
                           out.add(Pair(n, pointKey))
                       }
@@ -432,7 +414,7 @@ jobs:
                   val p = Path()
                   p.moveTo(r.exactCenterX(), r.exactCenterY())
                   val g = GestureDescription.Builder()
-                      .addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
+                      .addStroke(GestureDescription.StrokeDescription(p, 0, 40)).build()
                   dispatchGesture(g, null, null)
               }
           }
