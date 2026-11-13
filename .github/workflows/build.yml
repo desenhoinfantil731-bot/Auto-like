@@ -377,4 +377,70 @@ jobs:
               private fun collect(n: AccessibilityNodeInfo?, out: MutableList<Pair<AccessibilityNodeInfo, String>>) {
                   if (n == null) return
                   val desc = (n.contentDescription?.toString() ?: "").lowercase()
-                  val stateDesc = if (android.os.Build
+                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                      n.stateDescription?.toString()?.lowercase() ?: ""
+                  } else ""
+
+                  val r = Rect()
+                  n.getBoundsInScreen(r)
+
+                  val box = zoneBox ?: return
+                  val boxLoc = IntArray(2)
+                  box.getLocationOnScreen(boxLoc)
+                  val boxRect = Rect(boxLoc[0], boxLoc[1], boxLoc[0] + box.width, boxLoc[1] + box.height)
+
+                  val isInsideBox = boxRect.contains(r.centerX(), r.centerY())
+
+                  // Evita corações já curtidos
+                  val isAlreadyLiked = desc.contains("descurtir") || 
+                          desc.contains("curtido") || 
+                          desc.contains("unlike") || 
+                          desc.contains("liked") || 
+                          desc.contains("remover") ||
+                          stateDesc.contains("curtido") ||
+                          stateDesc.contains("liked") ||
+                          stateDesc.contains("selecionado") ||
+                          n.isSelected || 
+                          n.isChecked
+
+                  // Detecta se é clicável e está dentro da caixa menor dos corações
+                  val isClickable = n.isClickable || (n.parent != null && n.parent.isClickable)
+
+                  if (isClickable && !isAlreadyLiked && isInsideBox && r.width() > 10 && r.height() > 10 && r.width() < 120) {
+                      val pointKey = "${r.centerX() / 25},${r.centerY() / 25}"
+                      if (pointKey !in clickedPoints) {
+                          out.add(Pair(n, pointKey))
+                      }
+                  }
+
+                  for (i in 0 until n.childCount) {
+                      collect(n.getChild(i), out)
+                  }
+              }
+
+              private fun click(n: AccessibilityNodeInfo) {
+                  var targetNode = n
+                  while (targetNode != null && !targetNode.isClickable) {
+                      targetNode = targetNode.parent ?: break
+                  }
+                  if (targetNode != null && targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                      return
+                  }
+
+                  val r = Rect()
+                  n.getBoundsInScreen(r)
+                  val p = Path()
+                  p.moveTo(r.exactCenterX(), r.exactCenterY())
+                  val g = GestureDescription.Builder()
+                      .addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
+                  dispatchGesture(g, null, null)
+              }
+          }
+          EOF
+      - name: Compilar
+        working-directory: proj
+        run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoLike-apk
+          path: proj/app/build/outputs/apk/debug/app-debug.apk
