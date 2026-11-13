@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 6
-                  versionName = "1.5"
+                  versionCode = 7
+                  versionName = "1.6"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -180,7 +180,6 @@ jobs:
               private val lps = HashMap<View, WindowManager.LayoutParams>()
               private lateinit var wm: WindowManager
               
-              // Pacotes oficiais do TikTok (Principal e Lite)
               private val tiktok = setOf(
                   "com.ss.android.ugc.aweme",
                   "com.ss.android.ugc.aweme.lite",
@@ -319,7 +318,6 @@ jobs:
                   if (hearts.isEmpty() && !hasReply(root)) {
                       misses++
                       if (misses >= 4) {
-                          // Tenta rolar para carregar mais comentários antes de desistir
                           swipe()
                           misses = 0
                       }
@@ -364,7 +362,6 @@ jobs:
                   n.getBoundsInScreen(r)
                   val m = resources.displayMetrics
                   
-                  // Delimita a área da lista de comentários (foco no terço/metade inferior direito onde ficam os corações)
                   val inList = r.top > m.heightPixels * 0.30f &&
                           r.bottom < m.heightPixels * 0.90f &&
                           r.left > m.widthPixels * 0.55f
@@ -395,7 +392,6 @@ jobs:
 
               private fun center(v: View): Pair<Float, Float> {
                   val loc = IntArray(2)
-                  v.getLocationOnScale(loc) // Compatibilidade ajustada
                   v.getLocationOnScreen(loc)
                   return Pair(loc[0] + v.width / 2f, loc[1] + v.height / 2f)
               }
@@ -426,4 +422,3 @@ jobs:
         with:
           name: AutoLike-apk
           path: proj/app/build/outputs/apk/debug/app-debug.apk
-
