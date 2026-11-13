@@ -1,1 +1,429 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Gerar projeto
+        run: |
+          mkdir -p proj/app/src/main/java/com/example/autolike proj/app/src/main/res/xml proj/app/src/main/res/values
+          cd proj
+
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "AutoLike"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2g
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.example.autolike"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.example.autolike"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 6
+                  versionName = "1.5"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application android:label="AutoLike" android:theme="@android:style/Theme.DeviceDefault.Light">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service
+                      android:name=".AutoLikeService"
+                      android:exported="true"
+                      android:label="AutoLike"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_config" />
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/xml/accessibility_config.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+              android:canPerformGestures="true"
+              android:canRetrieveWindowContent="true"
+              android:description="@string/desc"
+              android:notificationTimeout="100" />
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="desc">Lê a tela do TikTok, curte os corações dos comentários e rola a lista automaticamente.</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/example/autolike/MainActivity.kt <<'EOF'
+          package com.example.autolike
+
+          import android.app.Activity
+          import android.content.Intent
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.TextView
+
+          class MainActivity : Activity() {
+              override fun onCreate(s: Bundle?) {
+                  super.onCreate(s)
+                  val l = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(48, 96, 48, 48)
+                  }
+                  l.addView(TextView(this).apply {
+                      text = "1) Ative o AutoLike em Acessibilidade.\n2) Abra o TikTok e a lista de comentários.\n3) Arraste A e B para dentro da lista de comentários: A embaixo e B em cima.\n4) Toque em VEL para trocar a velocidade.\n5) Toque em INICIAR."
+                      textSize = 18f
+                  })
+                  l.addView(Button(this).apply {
+                      text = "Abrir acessibilidade"
+                      setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                  })
+                  setContentView(l)
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/autolike/AutoLikeService.kt <<'EOF'
+          package com.example.autolike
+
+          import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.GestureDescription
+          import android.annotation.SuppressLint
+          import android.graphics.Color
+          import android.graphics.Path
+          import android.graphics.PixelFormat
+          import android.graphics.Rect
+          import android.os.Handler
+          import android.os.Looper
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.WindowManager
+          import android.view.accessibility.AccessibilityEvent
+          import android.view.accessibility.AccessibilityNodeInfo
+          import android.widget.Button
+          import kotlin.random.Random
+
+          class AutoLikeService : AccessibilityService() {
+              private val h = Handler(Looper.getMainLooper())
+              private var running = false
+              private var misses = 0
+              private val done = HashSet<String>()
+              private var btn: Button? = null
+              private var speedBtn: Button? = null
+              private var markA: Button? = null
+              private var markB: Button? = null
+              private var speed = 1
+              private var ax = 0f
+              private var ay = 0f
+              private var bx = 0f
+              private var by = 0f
+              private val speedNames = arrayOf("LENTO", "RÁPIDO", "TURBO")
+              private val swipeDur = longArrayOf(500L, 300L, 220L)
+              private val lps = HashMap<View, WindowManager.LayoutParams>()
+              private lateinit var wm: WindowManager
+              
+              // Pacotes oficiais do TikTok (Principal e Lite)
+              private val tiktok = setOf(
+                  "com.ss.android.ugc.aweme",
+                  "com.ss.android.ugc.aweme.lite",
+                  "com.zhiliaoapp.musically",
+                  "com.ss.android.ugc.trill"
+              )
+
+              private fun likeDelay(): Long = when (speed) {
+                  0 -> Random.nextLong(1200, 2500)
+                  1 -> Random.nextLong(500, 900)
+                  else -> Random.nextLong(200, 400)
+              }
+
+              private fun scrollDelay(): Long = when (speed) {
+                  0 -> Random.nextLong(2000, 3500)
+                  1 -> Random.nextLong(900, 1400)
+                  else -> Random.nextLong(500, 850)
+              }
+
+              override fun onServiceConnected() {
+                  wm = getSystemService(WINDOW_SERVICE) as WindowManager
+                  val m = resources.displayMetrics
+                  val w = m.widthPixels
+                  val hh = m.heightPixels
+                  btn = addFloating("INICIAR", Color.parseColor("#2E7D32"), (w * 0.72f).toInt(), 300) {
+                      if (running) stop() else start()
+                  }
+                  speedBtn = addFloating("VEL: " + speedNames[speed], Color.parseColor("#6A1B9A"), (w * 0.72f).toInt(), 480) {
+                      speed = (speed + 1) % 3
+                      speedBtn?.text = "VEL: " + speedNames[speed]
+                  }
+                  markA = addFloating("A", Color.parseColor("#1565C0"), (w * 0.47f).toInt(), (hh * 0.73f).toInt(), null)
+                  markB = addFloating("B", Color.parseColor("#C62828"), (w * 0.47f).toInt(), (hh * 0.56f).toInt(), null)
+              }
+
+              @SuppressLint("ClickableViewAccessibility")
+              private fun addFloating(label: String, color: Int, x: Int, y: Int, onClick: (() -> Unit)?): Button {
+                  val b = Button(this)
+                  b.text = label
+                  b.setTextColor(Color.WHITE)
+                  b.setBackgroundColor(color)
+                  b.alpha = 0.85f
+                  b.minWidth = 0
+                  b.minimumWidth = 0
+                  val p = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  )
+                  p.gravity = Gravity.TOP or Gravity.START
+                  p.x = x
+                  p.y = y
+                  var downX = 0f
+                  var downY = 0f
+                  var startX = 0
+                  var startY = 0
+                  var moved = false
+                  b.setOnTouchListener { v, e ->
+                      when (e.action) {
+                          MotionEvent.ACTION_DOWN -> {
+                              downX = e.rawX
+                              downY = e.rawY
+                              startX = p.x
+                              startY = p.y
+                              moved = false
+                          }
+                          MotionEvent.ACTION_MOVE -> {
+                              val ox = (e.rawX - downX).toInt()
+                              val oy = (e.rawY - downY).toInt()
+                              if (Math.abs(ox) > 12 || Math.abs(oy) > 12) moved = true
+                              if (moved) {
+                                  p.x = startX + ox
+                                  p.y = startY + oy
+                                  wm.updateViewLayout(v, p)
+                              }
+                          }
+                          MotionEvent.ACTION_UP -> {
+                              if (!moved) onClick?.invoke()
+                          }
+                      }
+                      true
+                  }
+                  wm.addView(b, p)
+                  lps[b] = p
+                  return b
+              }
+
+              override fun onAccessibilityEvent(e: AccessibilityEvent?) {}
+              override fun onInterrupt() { stop() }
+
+              override fun onDestroy() {
+                  stop()
+                  for (v in lps.keys) {
+                      try { wm.removeView(v) } catch (e: Exception) {}
+                  }
+                  super.onDestroy()
+              }
+
+              private fun start() {
+                  val a = markA ?: return
+                  val b = markB ?: return
+                  val ca = center(a)
+                  val cb = center(b)
+                  ax = ca.first
+                  ay = ca.second
+                  bx = cb.first
+                  by = cb.second
+                  running = true
+                  misses = 0
+                  done.clear()
+                  btn?.text = "PARAR"
+                  a.visibility = View.GONE
+                  b.visibility = View.GONE
+                  h.postDelayed({ tick() }, 400)
+              }
+
+              private fun stop() {
+                  running = false
+                  h.removeCallbacksAndMessages(null)
+                  btn?.text = "INICIAR"
+                  markA?.visibility = View.VISIBLE
+                  markB?.visibility = View.VISIBLE
+              }
+
+              private fun tick() {
+                  if (!running) return
+                  val root = rootInActiveWindow
+                  if (root == null || root.packageName?.toString() !in tiktok) {
+                      h.postDelayed({ tick() }, 2000)
+                      return
+                  }
+                  val hearts = ArrayList<AccessibilityNodeInfo>()
+                  collect(root, hearts)
+                  if (hearts.isEmpty() && !hasReply(root)) {
+                      misses++
+                      if (misses >= 4) {
+                          // Tenta rolar para carregar mais comentários antes de desistir
+                          swipe()
+                          misses = 0
+                      }
+                      h.postDelayed({ tick() }, 1000)
+                      return
+                  }
+                  misses = 0
+                  val target = hearts.firstOrNull { key(it) !in done }
+                  if (target != null) {
+                      done.add(key(target))
+                      click(target)
+                      h.postDelayed({ tick() }, likeDelay())
+                  } else {
+                      swipe()
+                      done.clear()
+                      h.postDelayed({ tick() }, scrollDelay())
+                  }
+              }
+
+              private fun hasReply(n: AccessibilityNodeInfo?): Boolean {
+                  if (n == null) return false
+                  val t = (n.text?.toString() ?: "").trim().lowercase()
+                  val d = (n.contentDescription?.toString() ?: "").trim().lowercase()
+                  if (t == "responder" || t == "reply" || d == "responder" || d == "reply") return true
+                  for (i in 0 until n.childCount) {
+                      if (hasReply(n.getChild(i))) return true
+                  }
+                  return false
+              }
+
+              private fun key(n: AccessibilityNodeInfo): String {
+                  val r = Rect()
+                  n.getBoundsInScreen(r)
+                  return "${r.left},${r.top}"
+              }
+
+              private fun collect(n: AccessibilityNodeInfo?, out: MutableList<AccessibilityNodeInfo>) {
+                  if (n == null) return
+                  val desc = (n.contentDescription?.toString() ?: "").lowercase()
+                  val id = (n.viewIdResourceName ?: "").lowercase()
+                  val r = Rect()
+                  n.getBoundsInScreen(r)
+                  val m = resources.displayMetrics
+                  
+                  // Delimita a área da lista de comentários (foco no terço/metade inferior direito onde ficam os corações)
+                  val inList = r.top > m.heightPixels * 0.30f &&
+                          r.bottom < m.heightPixels * 0.90f &&
+                          r.left > m.widthPixels * 0.55f
+
+                  val isHeart = desc.contains("curtir") || desc.contains("like") ||
+                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
+                          id.contains("iv_like") || desc.contains("coração")
+
+                  val alreadyLiked = desc.contains("descurtir") || desc.contains("curtido") ||
+                          desc.contains("unlike") || desc.contains("liked") || n.isSelected
+
+                  if (isHeart && !alreadyLiked && n.isVisibleToUser && inList && r.width() > 0) {
+                      out.add(n)
+                  }
+                  for (i in 0 until n.childCount) collect(n.getChild(i), out)
+              }
+
+              private fun click(n: AccessibilityNodeInfo) {
+                  var c: AccessibilityNodeInfo? = n
+                  while (c != null && !c.isClickable) c = c.parent
+                  if (c != null && c.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+                  val r = Rect()
+                  n.getBoundsInScreen(r)
+                  val p = Path()
+                  p.moveTo(r.exactCenterX(), r.exactCenterY())
+                  gesture(p, 60)
+              }
+
+              private fun center(v: View): Pair<Float, Float> {
+                  val loc = IntArray(2)
+                  v.getLocationOnScale(loc) // Compatibilidade ajustada
+                  v.getLocationOnScreen(loc)
+                  return Pair(loc[0] + v.width / 2f, loc[1] + v.height / 2f)
+              }
+
+              private fun swipe() {
+                  val fromA = ay >= by
+                  val sx = if (fromA) ax else bx
+                  val sy = if (fromA) ay else by
+                  val ex = if (fromA) bx else ax
+                  val ey = if (fromA) by else ay
+                  val p = Path()
+                  p.moveTo(sx + Random.nextInt(-8, 9), sy)
+                  p.lineTo(ex + Random.nextInt(-8, 9), ey)
+                  gesture(p, swipeDur[speed])
+              }
+
+              private fun gesture(path: Path, dur: Long) {
+                  val g = GestureDescription.Builder()
+                      .addStroke(GestureDescription.StrokeDescription(path, 0, dur)).build()
+                  dispatchGesture(g, null, null)
+              }
+          }
+          EOF
+      - name: Compilar
+        working-directory: proj
+        run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoLike-apk
+          path: proj/app/build/outputs/apk/debug/app-debug.apk
 
