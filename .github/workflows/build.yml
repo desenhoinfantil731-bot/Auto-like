@@ -1,4 +1,4 @@
-name: Build AutoLike 3.0 APK
+name: Build AutoLike 3.1 APK
 on:
   workflow_dispatch:
   push:
@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 30
-                  versionName = "3.0"
+                  versionCode = 31
+                  versionName = "3.1"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -68,7 +68,7 @@ jobs:
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="AutoLike 3.0" android:theme="@android:style/Theme.DeviceDefault.Light">
+              <application android:label="AutoLike 3.1" android:theme="@android:style/Theme.DeviceDefault.Light">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -78,7 +78,7 @@ jobs:
                   <service
                       android:name=".AutoLikeService"
                       android:exported="true"
-                      android:label="AutoLike 3.0"
+                      android:label="AutoLike 3.1"
                       android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
                       <intent-filter>
                           <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">AutoLike 3.0 com caixa vermelha ajustável e confirmação manual.</string>
+              <string name="desc">AutoLike 3.1 com caixa vermelha ajustável e confirmação manual.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "AutoLike 3.0\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha sobre os corações.\n4) Toque em INICIAR e confirme as curtidas quando solicitado!"
+                      text = "AutoLike 3.1\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha sobre os corações.\n4) Toque em INICIAR e confirme as curtidas quando solicitado!"
                       textSize = 17f
                   })
                   l.addView(Button(this).apply {
@@ -192,21 +192,17 @@ jobs:
                   val w = m.widthPixels
                   val hh = m.heightPixels
 
-                  // Botão INICIAR / PARAR
                   btn = addFloatingButton("INICIAR", Color.parseColor("#2E7D32"), w / 20, 150) {
                       if (running) stopService() else startService()
                   }
 
-                  // Status na tela
                   statusTv = addStatusLabel("AGUARDANDO", w / 20, 240)
 
-                  // Botão de Confirmação Manual
                   confirmBtn = addFloatingButton("CONFIRMAR CURTIDA", Color.parseColor("#C62828"), w / 20, 310) {
                       confirmCandidate()
                   }
                   confirmBtn?.visibility = View.GONE
 
-                  // Caixa Vermelha Ajustável (Delimita a área dos corações)
                   zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.32f).toInt(), (w * 0.22f).toInt(), (hh * 0.50f).toInt())
               }
 
@@ -428,21 +424,15 @@ jobs:
                       confirmBtn?.visibility = View.GONE
                       statusTv?.text = "CURTIDO! ROLE A TELA"
                   } else {
-                      // Fallback por gesto caso a ação direta falhe
                       val p = Path()
                       p.moveTo(expected.exactCenterX(), expected.exactCenterY())
                       val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
-                      dispatchGesture(g, object : GestureDescription.GestureResultCallback() {
-                          override fun onCompleted() {
-                              waitingForScroll = true
-                              candidateRect = null
-                              confirmBtn?.visibility = View.GONE
-                              statusTv?.text = "CURTIDO! ROLE A TELA"
-                          }
-                          override fun onCancelled() {
-                              statusTv?.text = "FALHA AO CLICAR"
-                          }
-                      }, null)
+                      dispatchGesture(g, null, null)
+
+                      waitingForScroll = true
+                      candidateRect = null
+                      confirmBtn?.visibility = View.GONE
+                      statusTv?.text = "CURTIDO! ROLE A TELA"
                   }
               }
 
@@ -482,5 +472,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AutoLike-3.0-APK
+          name: AutoLike-3.1-APK
           path: proj/app/build/outputs/apk/debug/app-debug.apk
