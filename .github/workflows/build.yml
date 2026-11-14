@@ -1,4 +1,4 @@
-name: Build AutoLike 3.7 APK
+name: Build AutoLike 3.8 APK
 on:
   workflow_dispatch:
   push:
@@ -52,10 +52,10 @@ jobs:
               compileSdk = 34
               defaultConfig {
                   applicationId = "com.example.autolike"
-                  minSdk = 26
+                  minSdk = 30
                   targetSdk = 34
-                  versionCode = 37
-                  versionName = "3.7"
+                  versionCode = 38
+                  versionName = "3.8"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -68,7 +68,7 @@ jobs:
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="AutoLike 3.7" android:theme="@android:style/Theme.DeviceDefault.Light">
+              <application android:label="AutoLike 3.8" android:theme="@android:style/Theme.DeviceDefault.Light">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -78,7 +78,7 @@ jobs:
                   <service
                       android:name=".AutoLikeService"
                       android:exported="true"
-                      android:label="AutoLike 3.7"
+                      android:label="AutoLike 3.8"
                       android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
                       <intent-filter>
                           <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -94,18 +94,19 @@ jobs:
           cat > app/src/main/res/xml/accessibility_config.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-              android:accessibilityEventTypes="typeViewScrolled|typeWindowStateChanged|typeWindowContentChanged"
+              android:accessibilityEventTypes="typeWindowStateChanged"
               android:accessibilityFeedbackType="feedbackGeneric"
-              android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+              android:accessibilityFlags="flagReportViewIds"
               android:canPerformGestures="true"
               android:canRetrieveWindowContent="true"
+              android:canTakeScreenshot="true"
               android:description="@string/desc"
               android:notificationTimeout="150" />
           EOF
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">AutoLike 3.7 focado estritamente no ícone de coração cinza vazado.</string>
+              <string name="desc">AutoLike 3.8: enxerga a tela e curte so coracoes vazios dentro da caixa vermelha.</string>
           </resources>
           EOF
 
@@ -128,7 +129,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "AutoLike 3.7 (Foco Exato no Ícone)\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha exatamente sobre os corações.\n4) Toque em INICIAR e role a tela com o dedo!"
+                      text = "AutoLike 3.8\n\n1) Ative o servico em Acessibilidade.\n2) Abra o TikTok e a lista de comentarios.\n3) Arraste a caixa vermelha para cobrir SO a coluna dos coracoes.\n4) Toque em INICIAR.\n5) Role a lista com o dedo (fora da caixa) e pare por um instante: o app curte so os coracoes vazios que estiverem dentro da caixa e ignora os vermelhos."
                       textSize = 17f
                   })
                   l.addView(Button(this).apply {
@@ -144,35 +145,53 @@ jobs:
           package com.example.autolike
 
           import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.AccessibilityService.ScreenshotResult
+          import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
           import android.accessibilityservice.GestureDescription
           import android.annotation.SuppressLint
+          import android.graphics.Bitmap
           import android.graphics.Color
           import android.graphics.Path
           import android.graphics.PixelFormat
+          import android.graphics.Point
           import android.graphics.Rect
           import android.graphics.drawable.GradientDrawable
           import android.os.Handler
           import android.os.Looper
+          import android.view.Display
           import android.view.Gravity
           import android.view.MotionEvent
           import android.view.View
           import android.view.WindowManager
           import android.view.accessibility.AccessibilityEvent
-          import android.view.accessibility.AccessibilityNodeInfo
           import android.widget.Button
           import android.widget.TextView
+          import java.util.concurrent.Executors
 
           class AutoLikeService : AccessibilityService() {
+
+              private class Scan(val empty: List<Point>, val red: Int)
+
+              private class Comp(val id: Int, var minX: Int, var maxX: Int, var minY: Int, var maxY: Int, var count: Int)
+
               private val h = Handler(Looper.getMainLooper())
+              private val worker = Executors.newSingleThreadExecutor()
+
               private var running = false
-              private val clickedPoints = HashSet<String>()
+              private var busy = false
+              private var likes = 0
+              private var prev: List<Point> = emptyList()
+              private val recent = HashMap<String, Long>()
 
               private var btn: Button? = null
               private var statusTv: TextView? = null
               private var zoneBox: TextView? = null
+              private var zoneParams: WindowManager.LayoutParams? = null
 
               private val views = mutableListOf<View>()
               private lateinit var wm: WindowManager
+
+              private val zoneLabel = "AREA DOS CORACOES\n(arraste aqui)"
 
               private val tiktokPackages = setOf(
                   "com.ss.android.ugc.aweme",
@@ -190,73 +209,11 @@ jobs:
                   btn = addFloatingButton("INICIAR", Color.parseColor("#2E7D32"), w / 20, 150) {
                       if (running) stopService() else startService()
                   }
-
-                  statusTv = addStatusLabel("AGUARDANDO", w / 20, 240)
-
-                  // Caixa vermelha posicionada com segurança na coluna dos corações
+                  statusTv = addStatusLabel("PARADO", w / 20, 240)
                   zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.38f).toInt(), (w * 0.22f).toInt(), (hh * 0.45f).toInt())
               }
 
-              @SuppressLint("ClickableViewAccessibility")
-              private fun addFloatingButton(label: String, color: Int, x: Int, y: Int, onClick: () -> Unit): Button {
-                  val b = Button(this).apply {
-                      text = label
-                      textSize = 12f
-                      setTextColor(Color.WHITE)
-                      setBackgroundColor(color)
-                      setOnClickListener { onClick() }
-                  }
-                  val p = WindowManager.LayoutParams(
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                      PixelFormat.TRANSLUCENT
-                  )
-                  p.gravity = Gravity.TOP or Gravity.START
-                  p.x = x
-                  p.y = y
-                  wm.addView(b, p)
-                  views.add(b)
-                  return b
-              }
-
-              private fun addStatusLabel(label: String, x: Int, y: Int): TextView {
-                  val tv = TextView(this).apply {
-                      text = label
-                      textSize = 12f
-                      setTextColor(Color.WHITE)
-                      setPadding(12, 6, 12, 6)
-                      setBackgroundColor(Color.DKGRAY)
-                  }
-                  val p = WindowManager.LayoutParams(
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                      PixelFormat.TRANSLUCENT
-                  )
-                  p.gravity = Gravity.TOP or Gravity.START
-                  p.x = x
-                  p.y = y
-                  wm.addView(tv, p)
-                  views.add(tv)
-                  return tv
-              }
-
-              @SuppressLint("ClickableViewAccessibility")
-              private fun addZoneBox(x: Int, y: Int, width: Int, height: Int): TextView {
-                  val tv = TextView(this).apply {
-                      text = "ÁREA DOS CORAÇÕES\n(Arraste aqui)"
-                      gravity = Gravity.CENTER
-                      textSize = 11f
-                      setTextColor(Color.WHITE)
-                      background = GradientDrawable().apply {
-                          setColor(0x22FF0000)
-                          setStroke(4, Color.RED)
-                          cornerRadius = 12f
-                      }
-                  }
+              private fun newParams(width: Int, height: Int, x: Int, y: Int): WindowManager.LayoutParams {
                   val p = WindowManager.LayoutParams(
                       width,
                       height,
@@ -267,6 +224,47 @@ jobs:
                   p.gravity = Gravity.TOP or Gravity.START
                   p.x = x
                   p.y = y
+                  return p
+              }
+
+              private fun addFloatingButton(label: String, color: Int, x: Int, y: Int, onClick: () -> Unit): Button {
+                  val b = Button(this)
+                  b.text = label
+                  b.textSize = 12f
+                  b.setTextColor(Color.WHITE)
+                  b.setBackgroundColor(color)
+                  b.setOnClickListener { onClick() }
+                  wm.addView(b, newParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, x, y))
+                  views.add(b)
+                  return b
+              }
+
+              private fun addStatusLabel(label: String, x: Int, y: Int): TextView {
+                  val tv = TextView(this)
+                  tv.text = label
+                  tv.textSize = 12f
+                  tv.setTextColor(Color.WHITE)
+                  tv.setPadding(12, 6, 12, 6)
+                  tv.setBackgroundColor(Color.DKGRAY)
+                  wm.addView(tv, newParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, x, y))
+                  views.add(tv)
+                  return tv
+              }
+
+              @SuppressLint("ClickableViewAccessibility")
+              private fun addZoneBox(x: Int, y: Int, width: Int, height: Int): TextView {
+                  val tv = TextView(this)
+                  tv.text = zoneLabel
+                  tv.gravity = Gravity.CENTER
+                  tv.textSize = 11f
+                  tv.setTextColor(Color.RED)
+                  val bg = GradientDrawable()
+                  bg.setColor(Color.TRANSPARENT)
+                  bg.setStroke(4, Color.RED)
+                  tv.background = bg
+
+                  val p = newParams(width, height, x, y)
+                  zoneParams = p
 
                   var downX = 0f
                   var downY = 0f
@@ -294,136 +292,289 @@ jobs:
                   return tv
               }
 
+              private fun status(msg: String) {
+                  statusTv?.text = msg
+              }
+
+              // Com o servico rodando a caixa deixa os toques passarem; parado, ela pode ser arrastada.
+              private fun setZoneTouchable(on: Boolean) {
+                  val v = zoneBox ?: return
+                  val p = zoneParams ?: return
+                  if (on) {
+                      p.flags = p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                  } else {
+                      p.flags = p.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                  }
+                  try { wm.updateViewLayout(v, p) } catch (e: Exception) {}
+              }
+
               private fun startService() {
                   running = true
-                  clickedPoints.clear()
+                  busy = false
+                  prev = emptyList()
+                  recent.clear()
+                  likes = 0
                   btn?.text = "PARAR"
-                  statusTv?.text = "RODANDO NO AUTOMÁTICO"
-                  scan()
+                  zoneBox?.text = ""
+                  setZoneTouchable(false)
+                  status("INICIANDO...")
+                  h.postDelayed({ loop() }, 700)
               }
 
               private fun stopService() {
                   running = false
-                  clickedPoints.clear()
+                  busy = false
+                  h.removeCallbacksAndMessages(null)
                   btn?.text = "INICIAR"
-                  statusTv?.text = "PARADO"
+                  zoneBox?.text = zoneLabel
+                  setZoneTouchable(true)
+                  status("PARADO")
               }
 
-              override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-                  if (!running || event == null) return
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
-                  when (event.eventType) {
-                      AccessibilityEvent.TYPE_VIEW_SCROLLED,
-                      AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                          h.postDelayed({
-                              if (running) scan()
-                          }, 250)
-                      }
-                  }
-              }
-
-              private fun scan() {
+              private fun loop() {
                   if (!running) return
-                  val root = rootInActiveWindow ?: return
-
-                  if (root.packageName?.toString() !in tiktokPackages) {
-                      statusTv?.text = "ABRA OS COMENTÁRIOS DO TIKTOK"
-                      return
-                  }
-
-                  val heartNode = findExactGreyHeart(root)
-                  if (heartNode != null) {
-                      val bounds = Rect()
-                      heartNode.getBoundsInScreen(bounds)
-                      val pointKey = "${bounds.centerX() / 25},${bounds.centerY() / 25}"
-
-                      if (pointKey !in clickedPoints) {
-                          clickedPoints.add(pointKey)
-                          clickNode(heartNode, bounds)
-                          statusTv?.text = "CURTINDO CORAÇÃO VAZIO!"
-                      }
-                  } else {
-                      statusTv?.text = "AGUARDANDO ROLAGEM..."
-                  }
+                  if (!busy) capture()
+                  h.postDelayed({ loop() }, 500)
               }
 
-              private fun isInsideZone(bounds: Rect): Boolean {
-                  val area = zoneBox ?: return false
+              private fun zoneRect(): Rect? {
+                  val v = zoneBox ?: return null
                   val loc = IntArray(2)
-                  area.getLocationOnScreen(loc)
-                  val zoneRect = Rect(loc[0], loc[1], loc[0] + area.width, loc[1] + area.height)
-                  return zoneRect.contains(bounds.centerX(), bounds.centerY())
+                  v.getLocationOnScreen(loc)
+                  return Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height)
               }
 
-              private fun findExactGreyHeart(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-                  if (node == null) return null
-                  val bounds = Rect()
-                  node.getBoundsInScreen(bounds)
-
-                  val desc = (node.contentDescription?.toString() ?: "").lowercase()
-                  val id = (node.viewIdResourceName ?: "").lowercase()
-                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
-                      node.stateDescription?.toString()?.lowercase() ?: ""
-                  } else ""
-
-                  // Bloqueia qualquer elemento de fechar, voltar ou cabeçalho
-                  if (desc.contains("fechar") || desc.contains("close") || desc.contains("voltar") || desc.contains("sair") ||
-                      id.contains("close") || id.contains("back") || id.contains("cancel") || id.contains("title")) {
-                      return null
+              private fun capture() {
+                  val pkg = rootInActiveWindow?.packageName?.toString()
+                  if (pkg == null || pkg !in tiktokPackages) {
+                      status("ABRA OS COMENTARIOS DO TIKTOK")
+                      prev = emptyList()
+                      return
                   }
+                  val zone = zoneRect() ?: return
+                  busy = true
+                  try {
+                      takeScreenshot(Display.DEFAULT_DISPLAY, worker, object : TakeScreenshotCallback {
+                          override fun onSuccess(result: ScreenshotResult) {
+                              var scan = Scan(emptyList(), 0)
+                              try {
+                                  val hw = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                                  if (hw != null) {
+                                      val bmp = hw.copy(Bitmap.Config.ARGB_8888, false)
+                                      hw.recycle()
+                                      if (bmp != null) {
+                                          scan = detect(bmp, zone)
+                                          bmp.recycle()
+                                      }
+                                  }
+                              } catch (e: Exception) {}
+                              try { result.hardwareBuffer.close() } catch (e: Exception) {}
+                              h.post { handle(scan) }
+                          }
 
-                  // IGNORA SE JÁ ESTIVER CURTIDO (VERMELHO / SELECIONADO)
-                  val isAlreadyLiked = desc.contains("descurtir") || 
-                          desc.contains("curtido") || 
-                          desc.contains("unlike") || 
-                          desc.contains("liked") || 
-                          desc.contains("remover") ||
-                          stateDesc.contains("curtido") ||
-                          stateDesc.contains("liked") ||
-                          node.isSelected || 
-                          node.isChecked
-
-                  if (isAlreadyLiked) {
-                      return null
+                          override fun onFailure(errorCode: Int) {
+                              h.post {
+                                  busy = false
+                                  status("ERRO NA CAPTURA ($errorCode)")
+                              }
+                          }
+                      })
+                  } catch (e: Exception) {
+                      busy = false
+                      status("ERRO NA CAPTURA")
                   }
+              }
 
-                  // EXCLUSIVO PARA O ÍCONE DO CORAÇÃO VAZIO: 
-                  // O TikTok identifica estruturalmente por IDs/descrições contendo 'digg', 'like', 'iv_like' ou 'coração'
-                  val isTargetHeart = desc.contains("curtir") || desc.contains("like") ||
-                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
-                          id.contains("iv_like") || id.contains("iv__like") || desc.contains("coração")
+              private fun keyOf(p: Point): String = "${p.x / 30},${p.y / 30}"
 
-                  // Garante que o tamanho corresponde estritamente às dimensões do ícone do coração na tela (15 a 85 pixels)
-                  val isValidSize = bounds.width() in 15..85 && bounds.height() in 15..85
+              private fun handle(scan: Scan) {
+                  if (!running) {
+                      busy = false
+                      return
+                  }
+                  // So toca em coracao que ficou parado entre duas capturas seguidas (lista nao esta se mexendo)
+                  val old = prev
+                  val stable = scan.empty.filter { f ->
+                      old.any { Math.abs(it.x - f.x) <= 14 && Math.abs(it.y - f.y) <= 14 }
+                  }
+                  prev = scan.empty
 
-                  if (isTargetHeart && isValidSize && isInsideZone(bounds)) {
-                      val pointKey = "${bounds.centerX() / 25},${bounds.centerY() / 25}"
-                      if (pointKey !in clickedPoints) {
-                          return node
+                  val now = System.currentTimeMillis()
+                  val iter = recent.entries.iterator()
+                  while (iter.hasNext()) {
+                      if (now - iter.next().value > 3000L) iter.remove()
+                  }
+                  val todo = stable.filter { recent[keyOf(it)] == null }
+
+                  status("VAZIOS: ${scan.empty.size} | VERMELHOS: ${scan.red} | CURTIDOS: $likes")
+
+                  if (todo.isEmpty()) {
+                      busy = false
+                      return
+                  }
+                  busy = true
+                  todo.forEachIndexed { i, p ->
+                      recent[keyOf(p)] = now
+                      h.postDelayed({
+                          if (running) {
+                              tap(p.x.toFloat(), p.y.toFloat())
+                              likes++
+                          }
+                      }, i * 260L)
+                  }
+                  h.postDelayed({
+                      busy = false
+                      prev = emptyList()
+                  }, todo.size * 260L + 400L)
+              }
+
+              private fun tap(x: Float, y: Float) {
+                  val p = Path()
+                  p.moveTo(x, y)
+                  val g = GestureDescription.Builder()
+                      .addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
+                  dispatchGesture(g, null, null)
+              }
+
+              // ---------- Deteccao visual ----------
+
+              private fun label(mask: BooleanArray, rw: Int, rh: Int, lab: IntArray): List<Comp> {
+                  val comps = ArrayList<Comp>()
+                  val stack = IntArray(mask.size)
+                  var id = 0
+                  for (start in mask.indices) {
+                      if (!mask[start] || lab[start] != 0) continue
+                      id++
+                      val sx = start % rw
+                      val sy = start / rw
+                      val comp = Comp(id, sx, sx, sy, sy, 0)
+                      var sp = 0
+                      stack[sp++] = start
+                      lab[start] = id
+                      while (sp > 0) {
+                          val cur = stack[--sp]
+                          val cx = cur % rw
+                          val cy = cur / rw
+                          comp.count++
+                          if (cx < comp.minX) comp.minX = cx
+                          if (cx > comp.maxX) comp.maxX = cx
+                          if (cy < comp.minY) comp.minY = cy
+                          if (cy > comp.maxY) comp.maxY = cy
+                          for (dy in -1..1) {
+                              val ny = cy + dy
+                              if (ny < 0 || ny >= rh) continue
+                              for (dx in -1..1) {
+                                  val nx = cx + dx
+                                  if (nx < 0 || nx >= rw) continue
+                                  val ni = ny * rw + nx
+                                  if (mask[ni] && lab[ni] == 0) {
+                                      lab[ni] = id
+                                      stack[sp++] = ni
+                                  }
+                              }
+                          }
+                      }
+                      comps.add(comp)
+                  }
+                  return comps
+              }
+
+              private fun detect(bmp: Bitmap, zone: Rect): Scan {
+                  val sw = bmp.width
+                  val inset = 10
+                  val x0 = (zone.left + inset).coerceIn(0, bmp.width - 1)
+                  val y0 = (zone.top + inset).coerceIn(0, bmp.height - 1)
+                  val x1 = (zone.right - inset).coerceIn(x0 + 1, bmp.width)
+                  val y1 = (zone.bottom - inset).coerceIn(y0 + 1, bmp.height)
+                  val rw = x1 - x0
+                  val rh = y1 - y0
+                  if (rw < 30 || rh < 30) return Scan(emptyList(), 0)
+
+                  val n = rw * rh
+                  val px = IntArray(n)
+                  bmp.getPixels(px, 0, rw, x0, y0, rw, rh)
+
+                  // Fundo = cor mais comum dentro da caixa (funciona em tema claro e escuro)
+                  val hist = HashMap<Int, Int>()
+                  var s = 0
+                  while (s < n) {
+                      val c = px[s]
+                      val key = (((c shr 20) and 15) shl 8) or (((c shr 12) and 15) shl 4) or ((c shr 4) and 15)
+                      hist[key] = (hist[key] ?: 0) + 1
+                      s += 5
+                  }
+                  var bgKey = 0
+                  var best = -1
+                  for ((k, v) in hist) {
+                      if (v > best) {
+                          best = v
+                          bgKey = k
+                      }
+                  }
+                  val bgR = ((bgKey shr 8) and 15) * 16 + 8
+                  val bgG = ((bgKey shr 4) and 15) * 16 + 8
+                  val bgB = (bgKey and 15) * 16 + 8
+                  val bgLum = (bgR * 30 + bgG * 59 + bgB * 11) / 100
+
+                  // Cinza (contorno do coracao vazio) x vermelho (coracao ja curtido)
+                  val grey = BooleanArray(n)
+                  val red = BooleanArray(n)
+                  for (i in 0 until n) {
+                      val c = px[i]
+                      val r = (c shr 16) and 255
+                      val g = (c shr 8) and 255
+                      val b = c and 255
+                      if (r > 170 && r - g > 90 && r - b > 60) {
+                          red[i] = true
+                          continue
+                      }
+                      val hi = maxOf(r, g, b)
+                      val lo = minOf(r, g, b)
+                      if (hi - lo <= 24) {
+                          val lum = (r * 30 + g * 59 + b * 11) / 100
+                          if (Math.abs(lum - bgLum) >= 45 && lum in 60..220) grey[i] = true
                       }
                   }
 
-                  for (i in 0 until node.childCount) {
-                      val result = findExactGreyHeart(node.getChild(i))
-                      if (result != null) return result
-                  }
-                  return null
-              }
+                  val empty = ArrayList<Point>()
+                  val labG = IntArray(n)
+                  for (c in label(grey, rw, rh, labG)) {
+                      val bw = c.maxX - c.minX + 1
+                      val bh = c.maxY - c.minY + 1
+                      if (bw < sw * 0.028 || bw > sw * 0.075 || bh < sw * 0.022 || bh > sw * 0.075) continue
+                      val ratio = bw.toFloat() / bh
+                      val fill = c.count.toFloat() / (bw * bh)
+                      if (ratio < 0.95f || ratio > 1.5f || fill < 0.10f || fill > 0.55f) continue
 
-              private fun clickNode(node: AccessibilityNodeInfo, bounds: Rect) {
-                  var target = node
-                  while (target != null && !target.isClickable) {
-                      target = target.parent
+                      // Coracao e simetrico (esquerda x direita); setas e numeros nao sao
+                      var sym = 0
+                      var tot = 0
+                      for (y in c.minY..c.maxY) {
+                          for (x in c.minX..c.maxX) {
+                              if (labG[y * rw + x] == c.id) {
+                                  tot++
+                                  val mirror = c.minX + c.maxX - x
+                                  if (labG[y * rw + mirror] == c.id) sym++
+                              }
+                          }
+                      }
+                      if (tot == 0 || sym.toFloat() / tot < 0.78f) continue
+                      empty.add(Point(x0 + (c.minX + c.maxX) / 2, y0 + (c.minY + c.maxY) / 2))
                   }
 
-                  if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                      return
+                  var redCount = 0
+                  val labR = IntArray(n)
+                  for (c in label(red, rw, rh, labR)) {
+                      val bw = c.maxX - c.minX + 1
+                      val bh = c.maxY - c.minY + 1
+                      if (bw < sw * 0.028 || bw > sw * 0.075 || bh < sw * 0.022 || bh > sw * 0.075) continue
+                      val ratio = bw.toFloat() / bh
+                      val fill = c.count.toFloat() / (bw * bh)
+                      if (ratio in 0.95f..1.5f && fill >= 0.45f) redCount++
                   }
-
-                  val p = Path()
-                  p.moveTo(bounds.exactCenterX(), bounds.exactCenterY())
-                  val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 40)).build()
-                  dispatchGesture(g, null, null)
+                  return Scan(empty, redCount)
               }
 
               override fun onInterrupt() { stopService() }
@@ -431,8 +582,9 @@ jobs:
               override fun onDestroy() {
                   stopService()
                   h.removeCallbacksAndMessages(null)
+                  worker.shutdown()
                   for (v in views) {
-                      try { wm.removeView(v) } catch (_: Exception) {}
+                      try { wm.removeView(v) } catch (e: Exception) {}
                   }
                   views.clear()
                   super.onDestroy()
@@ -446,5 +598,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AutoLike-3.7-APK
+          name: AutoLike-3.8-APK
           path: proj/app/build/outputs/apk/debug/app-debug.apk
