@@ -1,51 +1,30 @@
-
-name: Build AutoLike 2.9 APK
-
+name: Build AutoLike 3.0 APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Baixar projeto
-        uses: actions/checkout@v4
-
-      - name: Configurar Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Configurar Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-
-      - name: Gerar projeto Android
+      - name: Gerar projeto
         run: |
-          mkdir -p proj/app/src/main/java/com/example/autolike
-          mkdir -p proj/app/src/main/res/xml
-          mkdir -p proj/app/src/main/res/values
-
+          mkdir -p proj/app/src/main/java/com/example/autolike proj/app/src/main/res/xml proj/app/src/main/res/values
           cd proj
 
           cat > settings.gradle.kts <<'EOF'
           pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
           }
           dependencyResolutionManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
+              repositories { google(); mavenCentral() }
           }
           rootProject.name = "AutoLike"
           include(":app")
@@ -68,63 +47,45 @@ jobs:
               id("com.android.application")
               id("org.jetbrains.kotlin.android")
           }
-
           android {
               namespace = "com.example.autolike"
               compileSdk = 34
-
               defaultConfig {
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 29
-                  versionName = "2.9"
+                  versionCode = 30
+                  versionName = "3.0"
               }
-
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
-
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
+              kotlinOptions { jvmTarget = "17" }
           }
           EOF
 
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-              <application
-                  android:label="AutoLike 2.9"
-                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
-
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true">
-
+              <application android:label="AutoLike 3.0" android:theme="@android:style/Theme.DeviceDefault.Light">
+                  <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
-
                   </activity>
-
                   <service
                       android:name=".AutoLikeService"
-                      android:label="AutoLike"
-                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-                      android:exported="true">
-
+                      android:exported="true"
+                      android:label="AutoLike 3.0"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
                       <intent-filter>
-                          <action android:name="android.accessibilityservice.AccessibilityService"/>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
                       </intent-filter>
-
                       <meta-data
                           android:name="android.accessibilityservice"
-                          android:resource="@xml/accessibility_config"/>
-
+                          android:resource="@xml/accessibility_config" />
                   </service>
               </application>
           </manifest>
@@ -132,21 +93,19 @@ jobs:
 
           cat > app/src/main/res/xml/accessibility_config.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <accessibility-service
-              xmlns:android="http://schemas.android.com/apk/res/android"
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
               android:accessibilityEventTypes="typeViewScrolled|typeWindowStateChanged|typeWindowContentChanged"
               android:accessibilityFeedbackType="feedbackGeneric"
               android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
               android:canPerformGestures="true"
               android:canRetrieveWindowContent="true"
               android:description="@string/desc"
-              android:notificationTimeout="150"/>
+              android:notificationTimeout="150" />
           EOF
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="app_name">AutoLike 2.9</string>
-              <string name="desc">Assistente de identificação de corações vazios com confirmação manual.</string>
+              <string name="desc">AutoLike 3.0 com caixa vermelha ajustável e confirmação manual.</string>
           </resources>
           EOF
 
@@ -157,56 +116,26 @@ jobs:
           import android.content.Intent
           import android.os.Bundle
           import android.provider.Settings
-          import android.graphics.Color
-          import android.view.Gravity
           import android.widget.Button
           import android.widget.LinearLayout
           import android.widget.TextView
 
           class MainActivity : Activity() {
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-
-                  val layout = LinearLayout(this).apply {
+              override fun onCreate(s: Bundle?) {
+                  super.onCreate(s)
+                  val l = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      gravity = Gravity.CENTER
-                      setPadding(35, 50, 35, 50)
+                      setPadding(48, 96, 48, 48)
                   }
-
-                  layout.addView(TextView(this).apply {
-                      text = "AutoLike 2.9"
-                      textSize = 30f
-                      setTextColor(Color.BLACK)
-                  })
-
-                  layout.addView(TextView(this).apply {
-                      text = """
-                          Assistente de curtidas
-
-                          1. Ative o serviço de acessibilidade.
-                          2. Abra os comentários no TikTok.
-                          3. Ajuste a caixa sobre os corações.
-                          4. Inicie o reconhecimento.
-                          5. Confirme manualmente cada curtida.
-                          6. Role a tela para procurar novos comentários.
-
-                          Corações vermelhos são ignorados.
-                      """.trimIndent()
+                  l.addView(TextView(this).apply {
+                      text = "AutoLike 3.0\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha sobre os corações.\n4) Toque em INICIAR e confirme as curtidas quando solicitado!"
                       textSize = 17f
-                      setPadding(0, 25, 0, 25)
                   })
-
-                  layout.addView(Button(this).apply {
-                      text = "ATIVAR ACESSIBILIDADE"
-                      setOnClickListener {
-                          startActivity(
-                              Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                          )
-                      }
+                  l.addView(Button(this).apply {
+                      text = "Abrir acessibilidade"
+                      setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                   })
-
-                  setContentView(layout)
+                  setContentView(l)
               }
           }
           EOF
@@ -215,7 +144,10 @@ jobs:
           package com.example.autolike
 
           import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.GestureDescription
+          import android.annotation.SuppressLint
           import android.graphics.Color
+          import android.graphics.Path
           import android.graphics.PixelFormat
           import android.graphics.Rect
           import android.graphics.drawable.GradientDrawable
@@ -232,24 +164,18 @@ jobs:
           import kotlin.math.abs
 
           class AutoLikeService : AccessibilityService() {
-
-              private lateinit var wm: WindowManager
-              private val handler = Handler(Looper.getMainLooper())
-
+              private val h = Handler(Looper.getMainLooper())
               private var running = false
               private var waitingForScroll = false
-              private var speed = 1
 
-              private var zone: TextView? = null
-              private var status: TextView? = null
-              private var startButton: Button? = null
-              private var confirmButton: Button? = null
-              private var speedButton: Button? = null
+              private var btn: Button? = null
+              private var confirmBtn: Button? = null
+              private var statusTv: TextView? = null
+              private var zoneBox: TextView? = null
 
               private var candidateRect: Rect? = null
-              private var candidateLabel = ""
-
               private val views = mutableListOf<View>()
+              private lateinit var wm: WindowManager
 
               private val tiktokPackages = setOf(
                   "com.ss.android.ugc.aweme",
@@ -258,208 +184,135 @@ jobs:
                   "com.ss.android.ugc.trill"
               )
 
-              private data class HeartCandidate(
-                  val bounds: Rect,
-                  val label: String
-              )
+              data class HeartCandidate(val bounds: Rect, val node: AccessibilityNodeInfo)
 
               override fun onServiceConnected() {
-                  super.onServiceConnected()
-
                   wm = getSystemService(WINDOW_SERVICE) as WindowManager
+                  val m = resources.displayMetrics
+                  val w = m.widthPixels
+                  val hh = m.heightPixels
 
-                  val width = resources.displayMetrics.widthPixels
-                  val height = resources.displayMetrics.heightPixels
-
-                  startButton = addButton(
-                      "INICIAR",
-                      0,
-                      width / 20,
-                      150
-                  ) {
-                      if (running) stopService()
-                      else startService()
+                  // Botão INICIAR / PARAR
+                  btn = addFloatingButton("INICIAR", Color.parseColor("#2E7D32"), w / 20, 150) {
+                      if (running) stopService() else startService()
                   }
 
-                  speedButton = addButton(
-                      "VEL: NORMAL",
-                      0,
-                      width / 3,
-                      150
-                  ) {
-                      speed = (speed + 1) % 3
+                  // Status na tela
+                  statusTv = addStatusLabel("AGUARDANDO", w / 20, 240)
 
-                      speedButton?.text = when (speed) {
-                          0 -> "VEL: LENTA"
-                          1 -> "VEL: NORMAL"
-                          else -> "VEL: RÁPIDA"
-                      }
-                  }
-
-                  zone = addZone(
-                      width * 70 / 100,
-                      height * 32 / 100,
-                      width * 22 / 100,
-                      height * 50 / 100
-                  )
-
-                  status = addLabel(
-                      "AGUARDANDO",
-                      width / 20,
-                      260
-                  )
-
-                  confirmButton = addButton(
-                      "CONFIRMAR CURTIDA",
-                      0,
-                      width / 20,
-                      340
-                  ) {
+                  // Botão de Confirmação Manual
+                  confirmBtn = addFloatingButton("CONFIRMAR CURTIDA", Color.parseColor("#C62828"), w / 20, 310) {
                       confirmCandidate()
                   }
+                  confirmBtn?.visibility = View.GONE
 
-                  confirmButton?.visibility = View.GONE
+                  // Caixa Vermelha Ajustável (Delimita a área dos corações)
+                  zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.32f).toInt(), (w * 0.22f).toInt(), (hh * 0.50f).toInt())
               }
 
-              private fun addButton(
-                  label: String,
-                  ignored: Int,
-                  x: Int,
-                  y: Int,
-                  action: () -> Unit
-              ): Button {
-
-                  val button = Button(this).apply {
+              @SuppressLint("ClickableViewAccessibility")
+              private fun addFloatingButton(label: String, color: Int, x: Int, y: Int, onClick: () -> Unit): Button {
+                  val b = Button(this).apply {
                       text = label
-                      textSize = 11f
-                      setTextColor(Color.WHITE)
-                      setBackgroundColor(Color.rgb(35, 100, 180))
-                      setOnClickListener { action() }
-                  }
-
-                  val params = WindowManager.LayoutParams(
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                      PixelFormat.TRANSLUCENT
-                  )
-
-                  params.gravity = Gravity.TOP or Gravity.START
-                  params.x = x
-                  params.y = y
-
-                  wm.addView(button, params)
-                  views.add(button)
-
-                  return button
-              }
-
-              private fun addLabel(
-                  label: String,
-                  x: Int,
-                  y: Int
-              ): TextView {
-
-                  val view = TextView(this).apply {
-                      text = label
-                      textSize = 13f
-                      setTextColor(Color.WHITE)
-                      setPadding(12, 8, 12, 8)
-                      setBackgroundColor(Color.DKGRAY)
-                  }
-
-                  val params = WindowManager.LayoutParams(
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.WRAP_CONTENT,
-                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                      PixelFormat.TRANSLUCENT
-                  )
-
-                  params.gravity = Gravity.TOP or Gravity.START
-                  params.x = x
-                  params.y = y
-
-                  wm.addView(view, params)
-                  views.add(view)
-
-                  return view
-              }
-
-              private fun addZone(
-                  x: Int,
-                  y: Int,
-                  width: Int,
-                  height: Int
-              ): TextView {
-
-                  val view = TextView(this).apply {
-                      text = "ÁREA DOS CORAÇÕES"
-                      gravity = Gravity.CENTER
                       textSize = 12f
                       setTextColor(Color.WHITE)
+                      setBackgroundColor(color)
+                      setOnClickListener { onClick() }
+                  }
+                  val p = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  )
+                  p.gravity = Gravity.TOP or Gravity.START
+                  p.x = x
+                  p.y = y
+                  wm.addView(b, p)
+                  views.add(b)
+                  return b
+              }
 
+              private fun addStatusLabel(label: String, x: Int, y: Int): TextView {
+                  val tv = TextView(this).apply {
+                      text = label
+                      textSize = 12f
+                      setTextColor(Color.WHITE)
+                      setPadding(12, 6, 12, 6)
+                      setBackgroundColor(Color.DKGRAY)
+                  }
+                  val p = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.WRAP_CONTENT,
+                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                      PixelFormat.TRANSLUCENT
+                  )
+                  p.gravity = Gravity.TOP or Gravity.START
+                  p.x = x
+                  p.y = y
+                  wm.addView(tv, p)
+                  views.add(tv)
+                  return tv
+              }
+
+              @SuppressLint("ClickableViewAccessibility")
+              private fun addZoneBox(x: Int, y: Int, width: Int, height: Int): TextView {
+                  val tv = TextView(this).apply {
+                      text = "ÁREA DOS CORAÇÕES\n(Arraste aqui)"
+                      gravity = Gravity.CENTER
+                      textSize = 11f
+                      setTextColor(Color.WHITE)
                       background = GradientDrawable().apply {
                           setColor(0x22FF0000)
                           setStroke(4, Color.RED)
                           cornerRadius = 12f
                       }
                   }
-
-                  val params = WindowManager.LayoutParams(
+                  val p = WindowManager.LayoutParams(
                       width,
                       height,
                       WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                       WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                       PixelFormat.TRANSLUCENT
                   )
-
-                  params.gravity = Gravity.TOP or Gravity.START
-                  params.x = x
-                  params.y = y
+                  p.gravity = Gravity.TOP or Gravity.START
+                  p.x = x
+                  p.y = y
 
                   var downX = 0f
                   var downY = 0f
-                  var initialX = 0
-                  var initialY = 0
+                  var startX = 0
+                  var startY = 0
 
-                  view.setOnTouchListener { v, event ->
-                      when (event.action) {
+                  tv.setOnTouchListener { v, e ->
+                      when (e.action) {
                           MotionEvent.ACTION_DOWN -> {
-                              downX = event.rawX
-                              downY = event.rawY
-                              initialX = params.x
-                              initialY = params.y
+                              downX = e.rawX
+                              downY = e.rawY
+                              startX = p.x
+                              startY = p.y
                           }
-
                           MotionEvent.ACTION_MOVE -> {
-                              params.x = initialX +
-                                  (event.rawX - downX).toInt()
-
-                              params.y = initialY +
-                                  (event.rawY - downY).toInt()
-
-                              wm.updateViewLayout(v, params)
+                              p.x = startX + (e.rawX - downX).toInt()
+                              p.y = startY + (e.rawY - downY).toInt()
+                              wm.updateViewLayout(v, p)
                           }
                       }
                       true
                   }
-
-                  wm.addView(view, params)
-                  views.add(view)
-
-                  return view
+                  wm.addView(tv, p)
+                  views.add(tv)
+                  return tv
               }
 
               private fun startService() {
                   running = true
                   waitingForScroll = false
                   candidateRect = null
-
-                  startButton?.text = "PARAR"
-                  status?.text = "PROCURANDO CORAÇÕES"
-
+                  btn?.text = "PARAR"
+                  statusTv?.text = "PROCURANDO CORAÇÕES"
                   scan()
               }
 
@@ -467,257 +320,156 @@ jobs:
                   running = false
                   waitingForScroll = false
                   candidateRect = null
-
-                  startButton?.text = "INICIAR"
-                  status?.text = "PARADO"
-
-                  confirmButton?.visibility = View.GONE
+                  btn?.text = "INICIAR"
+                  statusTv?.text = "PARADO"
+                  confirmBtn?.visibility = View.GONE
               }
 
               override fun onAccessibilityEvent(event: AccessibilityEvent?) {
                   if (!running || event == null) return
 
                   when (event.eventType) {
-
                       AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                           if (waitingForScroll) {
                               waitingForScroll = false
                               candidateRect = null
-
-                              status?.text = "TELA ROLADA - PROCURANDO"
-
-                              handler.postDelayed({
-                                  if (running) scan()
-                              }, 700)
+                              statusTv?.text = "TELA ROLADA - BUSCANDO"
+                              h.postDelayed({ if (running) scan() }, 600)
                           }
                       }
-
                       AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                       AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                          if (!waitingForScroll &&
-                              candidateRect == null
-                          ) {
-                              handler.postDelayed({
-                                  if (running && !waitingForScroll) {
-                                      scan()
-                                  }
-                              }, 350)
+                          if (!waitingForScroll && candidateRect == null) {
+                              h.postDelayed({
+                                  if (running && !waitingForScroll && candidateRect == null) scan()
+                              }, 300)
                           }
                       }
                   }
               }
 
               private fun scan() {
-                  if (!running || waitingForScroll) return
-
+                  if (!running || waitingForScroll || candidateRect != null) return
                   val root = rootInActiveWindow ?: return
 
                   if (root.packageName?.toString() !in tiktokPackages) {
-                      status?.text = "ABRA OS COMENTÁRIOS DO TIKTOK"
+                      statusTv?.text = "ABRA OS COMENTÁRIOS DO TIKTOK"
                       return
                   }
 
                   val candidate = findHeart(root)
-
                   if (candidate != null) {
                       candidateRect = candidate.bounds
-                      candidateLabel = candidate.label
-
-                      status?.text = "CORAÇÃO VAZIO ENCONTRADO"
-
-                      confirmButton?.visibility = View.VISIBLE
+                      statusTv?.text = "CORAÇÃO ENCONTRADO! CONFIRME"
+                      confirmBtn?.visibility = View.VISIBLE
                   } else {
-                      status?.text = "NENHUM CORAÇÃO IDENTIFICADO"
-                      confirmButton?.visibility = View.GONE
+                      statusTv?.text = "AGUARDANDO CORAÇÃO NA ÁREA"
+                      confirmBtn?.visibility = View.GONE
                   }
               }
 
-              private fun isEmptyHeart(
-                  node: AccessibilityNodeInfo
-              ): Boolean {
-
-                  val description =
-                      node.contentDescription?.toString()
-                          ?.lowercase() ?: ""
-
-                  val text =
-                      node.text?.toString()
-                          ?.lowercase() ?: ""
-
-                  val label = "$description $text".trim()
-
-                  if (label.isEmpty()) return false
-
-                  val forbidden = listOf(
-                      "curtido",
-                      "descurtir",
-                      "liked",
-                      "unlike",
-                      "remover curtida"
-                  )
-
-                  if (forbidden.any { label.contains(it) }) {
-                      return false
-                  }
-
-                  return label == "curtir" ||
-                      label.startsWith("curtir ") ||
-                      label == "like" ||
-                      label.startsWith("like ")
+              private fun isInsideZone(bounds: Rect): Boolean {
+                  val area = zoneBox ?: return false
+                  val loc = IntArray(2)
+                  area.getLocationOnScreen(loc)
+                  val zoneRect = Rect(loc[0], loc[1], loc[0] + area.width, loc[1] + area.height)
+                  return zoneRect.contains(bounds.centerX(), bounds.centerY())
               }
 
-              private fun isInsideZone(
-                  node: AccessibilityNodeInfo
-              ): Boolean {
-
+              private fun findHeart(node: AccessibilityNodeInfo?): HeartCandidate? {
+                  if (node == null) return null
                   val bounds = Rect()
                   node.getBoundsInScreen(bounds)
 
-                  val area = zone ?: return false
+                  val desc = (node.contentDescription?.toString() ?: "").lowercase()
+                  val id = (node.viewIdResourceName ?: "").lowercase()
+                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                      node.stateDescription?.toString()?.lowercase() ?: ""
+                  } else ""
 
-                  val location = IntArray(2)
-                  area.getLocationOnScreen(location)
+                  val isAlreadyLiked = desc.contains("descurtir") || 
+                          desc.contains("curtido") || 
+                          desc.contains("unlike") || 
+                          desc.contains("liked") || 
+                          desc.contains("remover") ||
+                          stateDesc.contains("curtido") ||
+                          node.isSelected || 
+                          node.isChecked
 
-                  val zoneRect = Rect(
-                      location[0],
-                      location[1],
-                      location[0] + area.width,
-                      location[1] + area.height
-                  )
+                  val isHeartCandidate = desc.contains("curtir") || desc.contains("like") ||
+                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
+                          id.contains("iv_like") || desc.contains("coração") ||
+                          (node.isClickable && bounds.width() in 15..120 && bounds.height() in 15..120)
 
-                  return zoneRect.contains(
-                      bounds.centerX(),
-                      bounds.centerY()
-                  )
-              }
-
-              private fun findHeart(
-                  node: AccessibilityNodeInfo
-              ): HeartCandidate? {
-
-                  val bounds = Rect()
-                  node.getBoundsInScreen(bounds)
-
-                  val validSize =
-                      bounds.width() in 6..140 &&
-                      bounds.height() in 6..140
-
-                  if (
-                      validSize &&
-                      isInsideZone(node) &&
-                      isEmptyHeart(node) &&
-                      (node.isClickable ||
-                          node.parent?.isClickable == true)
-                  ) {
-                      val label =
-                          node.contentDescription?.toString()
-                              ?: node.text?.toString()
-                              ?: ""
-
-                      return HeartCandidate(
-                          Rect(bounds),
-                          label
-                      )
+                  if (isHeartCandidate && !isAlreadyLiked && isInsideZone(bounds) && bounds.width() > 0) {
+                      return HeartCandidate(Rect(bounds), node)
                   }
 
                   for (i in 0 until node.childCount) {
-                      val child = node.getChild(i) ?: continue
-
-                      val result = findHeart(child)
-
+                      val result = findHeart(node.getChild(i))
                       if (result != null) return result
                   }
-
                   return null
               }
 
               private fun confirmCandidate() {
-                  if (!running || waitingForScroll) return
-
+                  if (!running) return
                   val expected = candidateRect ?: return
                   val root = rootInActiveWindow ?: return
 
-                  if (root.packageName?.toString() !in tiktokPackages) {
-                      status?.text = "TIKTOK NÃO ESTÁ ATIVO"
-                      return
-                  }
-
-                  val current = findMatchingNode(root, expected)
-
-                  if (current == null) {
-                      candidateRect = null
-                      confirmButton?.visibility = View.GONE
-                      status?.text = "COMENTÁRIO MUDOU - RECONHECENDO NOVAMENTE"
-                      return
-                  }
-
-                  var target: AccessibilityNodeInfo? = current
-
+                  var target = findMatchingNode(root, expected)
                   while (target != null && !target.isClickable) {
                       target = target.parent
                   }
 
-                  if (target != null &&
-                      target.performAction(
-                          AccessibilityNodeInfo.ACTION_CLICK
-                      )
-                  ) {
+                  if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                       waitingForScroll = true
                       candidateRect = null
-
-                      confirmButton?.visibility = View.GONE
-                      status?.text = "CURTIDA CONFIRMADA - AGUARDANDO ROLAGEM"
+                      confirmBtn?.visibility = View.GONE
+                      statusTv?.text = "CURTIDO! ROLE A TELA"
                   } else {
-                      status?.text = "NÃO FOI POSSÍVEL CONFIRMAR"
+                      // Fallback por gesto caso a ação direta falhe
+                      val p = Path()
+                      p.moveTo(expected.exactCenterX(), expected.exactCenterY())
+                      val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
+                      dispatchGesture(g, object : GestureDescription.GestureResultCallback() {
+                          override fun onCompleted() {
+                              waitingForScroll = true
+                              candidateRect = null
+                              confirmBtn?.visibility = View.GONE
+                              statusTv?.text = "CURTIDO! ROLE A TELA"
+                          }
+                          override fun onCancelled() {
+                              statusTv?.text = "FALHA AO CLICAR"
+                          }
+                      }, null)
                   }
               }
 
-              private fun findMatchingNode(
-                  node: AccessibilityNodeInfo,
-                  expected: Rect
-              ): AccessibilityNodeInfo? {
-
+              private fun findMatchingNode(node: AccessibilityNodeInfo?, expected: Rect): AccessibilityNodeInfo? {
+                  if (node == null) return null
                   val bounds = Rect()
                   node.getBoundsInScreen(bounds)
 
-                  val samePosition =
-                      abs(bounds.centerX() - expected.centerX()) < 12 &&
-                      abs(bounds.centerY() - expected.centerY()) < 12
-
-                  if (
-                      samePosition &&
-                      isEmptyHeart(node) &&
-                      isInsideZone(node)
-                  ) {
+                  if (abs(bounds.centerX() - expected.centerX()) < 25 && abs(bounds.centerY() - expected.centerY()) < 25) {
                       return node
                   }
 
                   for (i in 0 until node.childCount) {
-                      val child = node.getChild(i) ?: continue
-
-                      val result = findMatchingNode(child, expected)
-
+                      val result = findMatchingNode(node.getChild(i), expected)
                       if (result != null) return result
                   }
-
                   return null
               }
 
-              override fun onInterrupt() {
-                  stopService()
-              }
+              override fun onInterrupt() { stopService() }
 
               override fun onDestroy() {
                   stopService()
-                  handler.removeCallbacksAndMessages(null)
-
-                  for (view in views) {
-                      try {
-                          wm.removeView(view)
-                      } catch (_: Exception) {
-                      }
+                  h.removeCallbacksAndMessages(null)
+                  for (v in views) {
+                      try { wm.removeView(v) } catch (_: Exception) {}
                   }
-
                   views.clear()
                   super.onDestroy()
               }
@@ -728,9 +480,7 @@ jobs:
         working-directory: proj
         run: gradle assembleDebug
 
-      - name: Disponibilizar APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: AutoLike-2.9-APK
+          name: AutoLike-3.0-APK
           path: proj/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
