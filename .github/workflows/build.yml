@@ -1,4 +1,4 @@
-name: Build AutoLike 3.2 APK
+name: Build AutoLike 3.5 APK
 on:
   workflow_dispatch:
   push:
@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 32
-                  versionName = "3.2"
+                  versionCode = 35
+                  versionName = "3.5"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -68,7 +68,7 @@ jobs:
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="AutoLike 3.2" android:theme="@android:style/Theme.DeviceDefault.Light">
+              <application android:label="AutoLike 3.5" android:theme="@android:style/Theme.DeviceDefault.Light">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -78,7 +78,7 @@ jobs:
                   <service
                       android:name=".AutoLikeService"
                       android:exported="true"
-                      android:label="AutoLike 3.2"
+                      android:label="AutoLike 3.5"
                       android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
                       <intent-filter>
                           <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">AutoLike 3.2 com curtida automática e caixa vermelha ajustável.</string>
+              <string name="desc">AutoLike 3.5 focado estritamente em corações vazios cinzas.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "AutoLike 3.2 (Automático)\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha sobre os corações.\n4) Toque em INICIAR e role a tela com o dedo!"
+                      text = "AutoLike 3.5 (Foco em Vazios)\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha sobre os corações.\n4) Toque em INICIAR e role a tela com o dedo!"
                       textSize = 17f
                   })
                   l.addView(Button(this).apply {
@@ -161,7 +161,6 @@ jobs:
           import android.view.accessibility.AccessibilityNodeInfo
           import android.widget.Button
           import android.widget.TextView
-          import kotlin.math.abs
 
           class AutoLikeService : AccessibilityService() {
               private val h = Handler(Looper.getMainLooper())
@@ -194,7 +193,8 @@ jobs:
 
                   statusTv = addStatusLabel("AGUARDANDO", w / 20, 240)
 
-                  zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.32f).toInt(), (w * 0.22f).toInt(), (hh * 0.50f).toInt())
+                  // Caixa posicionada de forma segura para não encostar no "X" de fechar
+                  zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.38f).toInt(), (w * 0.22f).toInt(), (hh * 0.45f).toInt())
               }
 
               @SuppressLint("ClickableViewAccessibility")
@@ -331,7 +331,7 @@ jobs:
                       return
                   }
 
-                  val heartNode = findNextHeart(root)
+                  val heartNode = findNextEmptyHeart(root)
                   if (heartNode != null) {
                       val bounds = Rect()
                       heartNode.getBoundsInScreen(bounds)
@@ -340,7 +340,7 @@ jobs:
                       if (pointKey !in clickedPoints) {
                           clickedPoints.add(pointKey)
                           clickNode(heartNode, bounds)
-                          statusTv?.text = "CURTINDO AUTOMÁTICO!"
+                          statusTv?.text = "CURTINDO VAZIO!"
                       }
                   } else {
                       statusTv?.text = "AGUARDANDO ROLAGEM..."
@@ -355,7 +355,7 @@ jobs:
                   return zoneRect.contains(bounds.centerX(), bounds.centerY())
               }
 
-              private fun findNextHeart(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+              private fun findNextEmptyHeart(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
                   if (node == null) return null
                   val bounds = Rect()
                   node.getBoundsInScreen(bounds)
@@ -366,21 +366,36 @@ jobs:
                       node.stateDescription?.toString()?.lowercase() ?: ""
                   } else ""
 
+                  // Bloqueia qualquer botão de fechar, voltar ou cabeçalhos rigorosamente
+                  if (desc.contains("fechar") || desc.contains("close") || desc.contains("voltar") || desc.contains("sair") ||
+                      id.contains("close") || id.contains("back") || id.contains("cancel") || id.contains("title")) {
+                      return null
+                  }
+
+                  // FILTRO ABSOLUTO PARA IGNORAR O CORAÇÃO VERMELHO (JÁ CURTIDO)
                   val isAlreadyLiked = desc.contains("descurtir") || 
                           desc.contains("curtido") || 
                           desc.contains("unlike") || 
                           desc.contains("liked") || 
                           desc.contains("remover") ||
                           stateDesc.contains("curtido") ||
+                          stateDesc.contains("liked") ||
                           node.isSelected || 
                           node.isChecked
 
+                  if (isAlreadyLiked) {
+                      return null // Ignora imediatamente se for o coração vermelho/curtido
+                  }
+
+                  // Identifica se é um botão de like/coração válido
                   val isHeartCandidate = desc.contains("curtir") || desc.contains("like") ||
                           desc.contains("digg") || id.contains("digg") || id.contains("like") ||
-                          id.contains("iv_like") || desc.contains("coração") ||
-                          (node.isClickable && bounds.width() in 15..120 && bounds.height() in 15..120)
+                          id.contains("iv_like") || id.contains("iv__like") || desc.contains("coração")
 
-                  if (isHeartCandidate && !isAlreadyLiked && isInsideZone(bounds) && bounds.width() > 0) {
+                  // Tamanho restrito de ícone (20 a 90 pixels) para evitar cliques falsos em áreas grandes
+                  val isValidIconSize = bounds.width() in 20..90 && bounds.height() in 20..90
+
+                  if (isHeartCandidate && isValidIconSize && isInsideZone(bounds)) {
                       val pointKey = "${bounds.centerX() / 25},${bounds.centerY() / 25}"
                       if (pointKey !in clickedPoints) {
                           return node
@@ -388,7 +403,7 @@ jobs:
                   }
 
                   for (i in 0 until node.childCount) {
-                      val result = findNextHeart(node.getChild(i))
+                      val result = findNextEmptyHeart(node.getChild(i))
                       if (result != null) return result
                   }
                   return null
@@ -430,5 +445,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AutoLike-3.2-APK
+          name: AutoLike-3.5-APK
           path: proj/app/build/outputs/apk/debug/app-debug.apk
