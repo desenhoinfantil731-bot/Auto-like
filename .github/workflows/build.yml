@@ -1,4 +1,4 @@
-name: Build AutoLike 3.9 APK
+name: Build AutoLike 4.0 APK
 on:
   workflow_dispatch:
   push:
@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 30
                   targetSdk = 34
-                  versionCode = 39
-                  versionName = "3.9"
+                  versionCode = 40
+                  versionName = "4.0"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -68,7 +68,7 @@ jobs:
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="AutoLike 3.9" android:theme="@android:style/Theme.DeviceDefault.Light">
+              <application android:label="AutoLike 4.0" android:theme="@android:style/Theme.DeviceDefault.Light">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -78,7 +78,7 @@ jobs:
                   <service
                       android:name=".AutoLikeService"
                       android:exported="true"
-                      android:label="AutoLike 3.9"
+                      android:label="AutoLike 4.0"
                       android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
                       <intent-filter>
                           <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -106,7 +106,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">AutoLike 3.9: enxerga a tela e curte so coracoes vazios dentro da caixa vermelha.</string>
+              <string name="desc">AutoLike 4.0: enxerga a tela e curte so coracoes vazios dentro da caixa vermelha.</string>
           </resources>
           EOF
 
@@ -129,7 +129,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "AutoLike 3.9\n\n1) Ative o servico em Acessibilidade.\n2) Abra o TikTok e a lista de comentarios.\n3) Arraste a caixa vermelha para cobrir SO a coluna dos coracoes (o botao LARGURA troca a largura).\n4) Toque em INICIAR.\n5) Role a lista com o dedo, fora da caixa, e PARE por 1 segundo: o app so toca em coracao vazio que ficou parado e ignora os vermelhos."
+                      text = "AutoLike 4.0\n\n1) Ative o servico em Acessibilidade.\n2) Abra o TikTok e a lista de comentarios.\n3) Arraste a caixa vermelha para cobrir SO a coluna dos coracoes (LARGURA troca a largura).\n4) VEL troca a velocidade: SEGURO, RAPIDO ou TURBO.\n5) Toque em INICIAR e role a lista com o dedo, fora da caixa. Ao parar, o app curte todos os coracoes vazios da caixa e ignora os vermelhos."
                       textSize = 17f
                   })
                   l.addView(Button(this).apply {
@@ -192,6 +192,15 @@ jobs:
               private var screenW = 0
               private val zoneWidths = intArrayOf(8, 11, 15, 22)
               private var widthIdx = 1
+              private var speedBtn: Button? = null
+              private var speed = 2
+              private val speedNames = arrayOf("SEGURO", "RAPIDO", "TURBO")
+              private val minGap = longArrayOf(420L, 360L, 340L)
+              private val needStill = intArrayOf(3, 2, 2)
+              private val tapGap = longArrayOf(260L, 110L, 70L)
+              private val settle = longArrayOf(350L, 100L, 60L)
+              private val multiTap = booleanArrayOf(false, true, true)
+              private var lastCap = 0L
 
               private val views = mutableListOf<View>()
               private lateinit var wm: WindowManager
@@ -220,7 +229,11 @@ jobs:
                       widthBtn?.text = "LARGURA: ${zoneWidths[widthIdx]}%"
                       applyZoneWidth()
                   }
-                  statusTv = addStatusLabel("PARADO", w / 20, 510)
+                  speedBtn = addFloatingButton("VEL: ${speedNames[speed]}", Color.parseColor("#6A1B9A"), w / 20, 510) {
+                      speed = (speed + 1) % speedNames.size
+                      speedBtn?.text = "VEL: ${speedNames[speed]}"
+                  }
+                  statusTv = addStatusLabel("PARADO", w / 20, 690)
                   zoneBox = addZoneBox((w * 0.715f).toInt(), (hh * 0.40f).toInt(), (w * zoneWidths[widthIdx] / 100f).toInt(), (hh * 0.45f).toInt())
               }
 
@@ -333,6 +346,7 @@ jobs:
                   prev2 = emptyList()
                   recent.clear()
                   likes = 0
+                  lastCap = 0L
                   btn?.text = "PARAR"
                   zoneBox?.text = ""
                   setZoneTouchable(false)
@@ -354,8 +368,9 @@ jobs:
 
               private fun loop() {
                   if (!running) return
-                  if (!busy) capture()
-                  h.postDelayed({ loop() }, 420)
+                  val now = System.currentTimeMillis()
+                  if (!busy && now - lastCap >= minGap[speed]) capture()
+                  h.postDelayed({ loop() }, 40)
               }
 
               private fun zoneRect(): Rect? {
@@ -366,6 +381,7 @@ jobs:
               }
 
               private fun capture() {
+                  lastCap = System.currentTimeMillis()
                   val pkg = rootInActiveWindow?.packageName?.toString()
                   if (pkg == null || pkg !in tiktokPackages) {
                       status("ABRA OS COMENTARIOS DO TIKTOK")
@@ -418,10 +434,11 @@ jobs:
                       busy = false
                       return
                   }
-                  // So toca em coracao que ficou PARADO nas 3 capturas seguidas (a lista nao esta se mexendo)
+                  // So toca em coracao PARADO (mesma posicao, +-4 px, nas capturas anteriores)
                   val a = prev1
                   val b = prev2
-                  val stable = scan.empty.filter { f -> near(a, f) && near(b, f) }
+                  val still3 = needStill[speed] >= 3
+                  val stable = scan.empty.filter { f -> near(a, f) && (!still3 || near(b, f)) }
                   prev2 = prev1
                   prev1 = scan.empty
 
@@ -430,27 +447,34 @@ jobs:
                   while (iter.hasNext()) {
                       if (now - iter.next().value > 3000L) iter.remove()
                   }
-                  val target = stable.filter { recent[keyOf(it)] == null }.minByOrNull { it.y }
+                  val ready = stable.filter { recent[keyOf(it)] == null }.sortedBy { it.y }
+                  val todo = if (multiTap[speed]) ready else ready.take(1)
 
-                  status("VAZIOS: ${scan.empty.size} | VERMELHOS: ${scan.red} | PARADOS: ${stable.size} | CURTIDOS: $likes")
+                  status("${speedNames[speed]} | VAZIOS: ${scan.empty.size} | VERMELHOS: ${scan.red} | PARADOS: ${stable.size} | CURTIDOS: $likes")
 
-                  if (target == null) {
+                  if (todo.isEmpty()) {
                       busy = false
                       return
                   }
-                  // UM toque por captura; depois espera o coracao ficar vermelho antes de olhar de novo
-                  recent[keyOf(target)] = now
-                  tap(target.x.toFloat(), target.y.toFloat())
-                  likes++
                   busy = true
-                  h.postDelayed({ busy = false }, 350L)
+                  val gap = tapGap[speed]
+                  todo.forEachIndexed { i, p ->
+                      recent[keyOf(p)] = now
+                      h.postDelayed({
+                          if (running) {
+                              tap(p.x.toFloat(), p.y.toFloat())
+                              likes++
+                          }
+                      }, i * gap)
+                  }
+                  h.postDelayed({ busy = false }, (todo.size - 1) * gap + settle[speed])
               }
 
               private fun tap(x: Float, y: Float) {
                   val p = Path()
                   p.moveTo(x, y)
                   val g = GestureDescription.Builder()
-                      .addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
+                      .addStroke(GestureDescription.StrokeDescription(p, 0, 45)).build()
                   dispatchGesture(g, null, null)
               }
 
@@ -614,5 +638,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AutoLike-3.9-APK
+          name: AutoLike-4.0-APK
           path: proj/app/build/outputs/apk/debug/app-debug.apk
