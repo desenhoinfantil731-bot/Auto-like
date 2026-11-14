@@ -348,4 +348,87 @@ jobs:
               }
 
               private fun isInsideZone(bounds: Rect): Boolean {
-                  val area
+                  val area = zoneBox ?: return false
+                  val loc = IntArray(2)
+                  area.getLocationOnScreen(loc)
+                  val zoneRect = Rect(loc[0], loc[1], loc[0] + area.width, loc[1] + area.height)
+                  return zoneRect.contains(bounds.centerX(), bounds.centerY())
+              }
+
+              private fun findNextHeart(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+                  if (node == null) return null
+                  val bounds = Rect()
+                  node.getBoundsInScreen(bounds)
+
+                  val desc = (node.contentDescription?.toString() ?: "").lowercase()
+                  val id = (node.viewIdResourceName ?: "").lowercase()
+                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                      node.stateDescription?.toString()?.lowercase() ?: ""
+                  } else ""
+
+                  val isAlreadyLiked = desc.contains("descurtir") || 
+                          desc.contains("curtido") || 
+                          desc.contains("unlike") || 
+                          desc.contains("liked") || 
+                          desc.contains("remover") ||
+                          stateDesc.contains("curtido") ||
+                          node.isSelected || 
+                          node.isChecked
+
+                  val isHeartCandidate = desc.contains("curtir") || desc.contains("like") ||
+                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
+                          id.contains("iv_like") || desc.contains("coração") ||
+                          (node.isClickable && bounds.width() in 15..120 && bounds.height() in 15..120)
+
+                  if (isHeartCandidate && !isAlreadyLiked && isInsideZone(bounds) && bounds.width() > 0) {
+                      val pointKey = "${bounds.centerX() / 25},${bounds.centerY() / 25}"
+                      if (pointKey !in clickedPoints) {
+                          return node
+                      }
+                  }
+
+                  for (i in 0 until node.childCount) {
+                      val result = findNextHeart(node.getChild(i))
+                      if (result != null) return result
+                  }
+                  return null
+              }
+
+              private fun clickNode(node: AccessibilityNodeInfo, bounds: Rect) {
+                  var target = node
+                  while (target != null && !target.isClickable) {
+                      target = target.parent
+                  }
+
+                  if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                      return
+                  }
+
+                  val p = Path()
+                  p.moveTo(bounds.exactCenterX(), bounds.exactCenterY())
+                  val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 40)).build()
+                  dispatchGesture(g, null, null)
+              }
+
+              override fun onInterrupt() { stopService() }
+
+              override fun onDestroy() {
+                  stopService()
+                  h.removeCallbacksAndMessages(null)
+                  for (v in views) {
+                      try { wm.removeView(v) } catch (_: Exception) {}
+                  }
+                  views.clear()
+                  super.onDestroy()
+              }
+          }
+          EOF
+
+      - name: Compilar APK
+        working-directory: proj
+        run: gradle assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoLike-3.2-APK
+          path: proj/app/build/outputs/apk/debug/app-debug.apk
