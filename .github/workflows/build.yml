@@ -1,4 +1,4 @@
-name: Build AutoLike 3.1 APK
+name: Build AutoLike 3.2 APK
 on:
   workflow_dispatch:
   push:
@@ -54,8 +54,8 @@ jobs:
                   applicationId = "com.example.autolike"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 31
-                  versionName = "3.1"
+                  versionCode = 32
+                  versionName = "3.2"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -68,7 +68,7 @@ jobs:
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <application android:label="AutoLike 3.1" android:theme="@android:style/Theme.DeviceDefault.Light">
+              <application android:label="AutoLike 3.2" android:theme="@android:style/Theme.DeviceDefault.Light">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -78,7 +78,7 @@ jobs:
                   <service
                       android:name=".AutoLikeService"
                       android:exported="true"
-                      android:label="AutoLike 3.1"
+                      android:label="AutoLike 3.2"
                       android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
                       <intent-filter>
                           <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -105,7 +105,7 @@ jobs:
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <resources>
-              <string name="desc">AutoLike 3.1 com caixa vermelha ajustável e confirmação manual.</string>
+              <string name="desc">AutoLike 3.2 com curtida automática e caixa vermelha ajustável.</string>
           </resources>
           EOF
 
@@ -128,7 +128,7 @@ jobs:
                       setPadding(48, 96, 48, 48)
                   }
                   l.addView(TextView(this).apply {
-                      text = "AutoLike 3.1\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha sobre os corações.\n4) Toque em INICIAR e confirme as curtidas quando solicitado!"
+                      text = "AutoLike 3.2 (Automático)\n\n1) Ative o serviço nas Configurações de Acessibilidade.\n2) Abra o TikTok e os comentários.\n3) Posicione a Caixa Vermelha sobre os corações.\n4) Toque em INICIAR e role a tela com o dedo!"
                       textSize = 17f
                   })
                   l.addView(Button(this).apply {
@@ -166,14 +166,12 @@ jobs:
           class AutoLikeService : AccessibilityService() {
               private val h = Handler(Looper.getMainLooper())
               private var running = false
-              private var waitingForScroll = false
+              private val clickedPoints = HashSet<String>()
 
               private var btn: Button? = null
-              private var confirmBtn: Button? = null
               private var statusTv: TextView? = null
               private var zoneBox: TextView? = null
 
-              private var candidateRect: Rect? = null
               private val views = mutableListOf<View>()
               private lateinit var wm: WindowManager
 
@@ -183,8 +181,6 @@ jobs:
                   "com.zhiliaoapp.musically",
                   "com.ss.android.ugc.trill"
               )
-
-              data class HeartCandidate(val bounds: Rect, val node: AccessibilityNodeInfo)
 
               override fun onServiceConnected() {
                   wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -197,11 +193,6 @@ jobs:
                   }
 
                   statusTv = addStatusLabel("AGUARDANDO", w / 20, 240)
-
-                  confirmBtn = addFloatingButton("CONFIRMAR CURTIDA", Color.parseColor("#C62828"), w / 20, 310) {
-                      confirmCandidate()
-                  }
-                  confirmBtn?.visibility = View.GONE
 
                   zoneBox = addZoneBox((w * 0.70f).toInt(), (hh * 0.32f).toInt(), (w * 0.22f).toInt(), (hh * 0.50f).toInt())
               }
@@ -305,47 +296,34 @@ jobs:
 
               private fun startService() {
                   running = true
-                  waitingForScroll = false
-                  candidateRect = null
+                  clickedPoints.clear()
                   btn?.text = "PARAR"
-                  statusTv?.text = "PROCURANDO CORAÇÕES"
+                  statusTv?.text = "RODANDO NO AUTOMÁTICO"
                   scan()
               }
 
               private fun stopService() {
                   running = false
-                  waitingForScroll = false
-                  candidateRect = null
+                  clickedPoints.clear()
                   btn?.text = "INICIAR"
                   statusTv?.text = "PARADO"
-                  confirmBtn?.visibility = View.GONE
               }
 
               override fun onAccessibilityEvent(event: AccessibilityEvent?) {
                   if (!running || event == null) return
 
                   when (event.eventType) {
-                      AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                          if (waitingForScroll) {
-                              waitingForScroll = false
-                              candidateRect = null
-                              statusTv?.text = "TELA ROLADA - BUSCANDO"
-                              h.postDelayed({ if (running) scan() }, 600)
-                          }
-                      }
-                      AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                      AccessibilityEvent.TYPE_VIEW_SCROLLED,
                       AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                          if (!waitingForScroll && candidateRect == null) {
-                              h.postDelayed({
-                                  if (running && !waitingForScroll && candidateRect == null) scan()
-                              }, 300)
-                          }
+                          h.postDelayed({
+                              if (running) scan()
+                          }, 250)
                       }
                   }
               }
 
               private fun scan() {
-                  if (!running || waitingForScroll || candidateRect != null) return
+                  if (!running) return
                   val root = rootInActiveWindow ?: return
 
                   if (root.packageName?.toString() !in tiktokPackages) {
@@ -353,124 +331,21 @@ jobs:
                       return
                   }
 
-                  val candidate = findHeart(root)
-                  if (candidate != null) {
-                      candidateRect = candidate.bounds
-                      statusTv?.text = "CORAÇÃO ENCONTRADO! CONFIRME"
-                      confirmBtn?.visibility = View.VISIBLE
+                  val heartNode = findNextHeart(root)
+                  if (heartNode != null) {
+                      val bounds = Rect()
+                      heartNode.getBoundsInScreen(bounds)
+                      val pointKey = "${bounds.centerX() / 25},${bounds.centerY() / 25}"
+
+                      if (pointKey !in clickedPoints) {
+                          clickedPoints.add(pointKey)
+                          clickNode(heartNode, bounds)
+                          statusTv?.text = "CURTINDO AUTOMÁTICO!"
+                      }
                   } else {
-                      statusTv?.text = "AGUARDANDO CORAÇÃO NA ÁREA"
-                      confirmBtn?.visibility = View.GONE
+                      statusTv?.text = "AGUARDANDO ROLAGEM..."
                   }
               }
 
               private fun isInsideZone(bounds: Rect): Boolean {
-                  val area = zoneBox ?: return false
-                  val loc = IntArray(2)
-                  area.getLocationOnScreen(loc)
-                  val zoneRect = Rect(loc[0], loc[1], loc[0] + area.width, loc[1] + area.height)
-                  return zoneRect.contains(bounds.centerX(), bounds.centerY())
-              }
-
-              private fun findHeart(node: AccessibilityNodeInfo?): HeartCandidate? {
-                  if (node == null) return null
-                  val bounds = Rect()
-                  node.getBoundsInScreen(bounds)
-
-                  val desc = (node.contentDescription?.toString() ?: "").lowercase()
-                  val id = (node.viewIdResourceName ?: "").lowercase()
-                  val stateDesc = if (android.os.Build.VERSION.SDK_INT >= 30) {
-                      node.stateDescription?.toString()?.lowercase() ?: ""
-                  } else ""
-
-                  val isAlreadyLiked = desc.contains("descurtir") || 
-                          desc.contains("curtido") || 
-                          desc.contains("unlike") || 
-                          desc.contains("liked") || 
-                          desc.contains("remover") ||
-                          stateDesc.contains("curtido") ||
-                          node.isSelected || 
-                          node.isChecked
-
-                  val isHeartCandidate = desc.contains("curtir") || desc.contains("like") ||
-                          desc.contains("digg") || id.contains("digg") || id.contains("like") ||
-                          id.contains("iv_like") || desc.contains("coração") ||
-                          (node.isClickable && bounds.width() in 15..120 && bounds.height() in 15..120)
-
-                  if (isHeartCandidate && !isAlreadyLiked && isInsideZone(bounds) && bounds.width() > 0) {
-                      return HeartCandidate(Rect(bounds), node)
-                  }
-
-                  for (i in 0 until node.childCount) {
-                      val result = findHeart(node.getChild(i))
-                      if (result != null) return result
-                  }
-                  return null
-              }
-
-              private fun confirmCandidate() {
-                  if (!running) return
-                  val expected = candidateRect ?: return
-                  val root = rootInActiveWindow ?: return
-
-                  var target = findMatchingNode(root, expected)
-                  while (target != null && !target.isClickable) {
-                      target = target.parent
-                  }
-
-                  if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                      waitingForScroll = true
-                      candidateRect = null
-                      confirmBtn?.visibility = View.GONE
-                      statusTv?.text = "CURTIDO! ROLE A TELA"
-                  } else {
-                      val p = Path()
-                      p.moveTo(expected.exactCenterX(), expected.exactCenterY())
-                      val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 50)).build()
-                      dispatchGesture(g, null, null)
-
-                      waitingForScroll = true
-                      candidateRect = null
-                      confirmBtn?.visibility = View.GONE
-                      statusTv?.text = "CURTIDO! ROLE A TELA"
-                  }
-              }
-
-              private fun findMatchingNode(node: AccessibilityNodeInfo?, expected: Rect): AccessibilityNodeInfo? {
-                  if (node == null) return null
-                  val bounds = Rect()
-                  node.getBoundsInScreen(bounds)
-
-                  if (abs(bounds.centerX() - expected.centerX()) < 25 && abs(bounds.centerY() - expected.centerY()) < 25) {
-                      return node
-                  }
-
-                  for (i in 0 until node.childCount) {
-                      val result = findMatchingNode(node.getChild(i), expected)
-                      if (result != null) return result
-                  }
-                  return null
-              }
-
-              override fun onInterrupt() { stopService() }
-
-              override fun onDestroy() {
-                  stopService()
-                  h.removeCallbacksAndMessages(null)
-                  for (v in views) {
-                      try { wm.removeView(v) } catch (_: Exception) {}
-                  }
-                  views.clear()
-                  super.onDestroy()
-              }
-          }
-          EOF
-
-      - name: Compilar APK
-        working-directory: proj
-        run: gradle assembleDebug
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AutoLike-3.1-APK
-          path: proj/app/build/outputs/apk/debug/app-debug.apk
+                  val area
